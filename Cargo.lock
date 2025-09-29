@@ -5935,6 +5935,7 @@ dependencies = [
  "frame-system",
  "pallet-balances",
  "pallet-uniques",
+ "pallet-universal-registry",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
@@ -6051,6 +6052,20 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "scale-info",
+ "sp-runtime",
+]
+
+[[package]]
+name = "pallet-universal-registry"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
@@ -9508,6 +9523,7 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "pallet-uniques",
+ "pallet-universal-registry",
  "parity-scale-codec",
  "scale-info",
  "serde_json",

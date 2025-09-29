@@ -1,10 +1,24 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
+
 pub use pallet::*;
+
+#[cfg(feature = "universal-registry")]
+use pallet_universal_registry::Pallet as UniversalRegistry;
+#[cfg(feature = "universal-registry")]
+use core::convert::TryInto;
+#[cfg(feature = "universal-registry")]
+use alloc::format;
+#[cfg(feature = "universal-registry")]
+use alloc::vec::Vec;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use core::{convert::{TryFrom, TryInto}, marker::PhantomData};
+    use core::{
+        convert::{TryFrom, TryInto},
+        marker::PhantomData,
+    };
     use frame_support::{
         pallet_prelude::*,
         traits::{Currency, EnsureOrigin, ReservableCurrency},
@@ -13,9 +27,13 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use pallet_uniques as uniques;
     use scale_info::prelude::vec::Vec;
+    #[cfg(feature = "universal-registry")]
+    use crate::RegistryBridge;
     use sp_runtime::traits::{CheckedAdd, One, StaticLookup, Zero};
 
-    type BalanceOf<T> = <<T as uniques::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+    type BalanceOf<T> = <<T as uniques::Config>::Currency as Currency<
+        <T as frame_system::Config>::AccountId,
+    >>::Balance;
     type CurrencyOf<T> = <T as uniques::Config>::Currency;
 
     #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone, Default, PartialEq, Eq, Debug)]
@@ -62,6 +80,9 @@ pub mod pallet {
         /// CollectionId fixa (configurável no runtime) usada para as lojas
         #[pallet::constant]
         type BazariStoresCollectionId: Get<<Self as uniques::Config>::CollectionId>;
+
+        #[cfg(feature = "universal-registry")]
+        type Registry: RegistryBridge<Self>;
     }
 
     #[pallet::type_value]
@@ -71,7 +92,8 @@ pub mod pallet {
 
     /// Próximo identificador de loja (sequencial)
     #[pallet::storage]
-    pub type NextStoreId<T: Config> = StorageValue<_, T::StoreId, ValueQuery, NextStoreIdDefault<T>>;
+    pub type NextStoreId<T: Config> =
+        StorageValue<_, T::StoreId, ValueQuery, NextStoreIdDefault<T>>;
 
     /// Metadado CID (bounded) por StoreId
     #[pallet::storage]
@@ -95,15 +117,18 @@ pub mod pallet {
 
     /// Transferência pendente aguardando aceite do novo owner
     #[pallet::storage]
-    pub type PendingTransfer<T: Config> = StorageMap<_, Blake2_128Concat, T::StoreId, T::AccountId, OptionQuery>;
+    pub type PendingTransfer<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::StoreId, T::AccountId, OptionQuery>;
 
     /// Reputação agregada da loja
     #[pallet::storage]
-    pub type Reputation<T: Config> = StorageMap<_, Blake2_128Concat, T::StoreId, ReputationStats, ValueQuery>;
+    pub type Reputation<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::StoreId, ReputationStats, ValueQuery>;
 
     /// Depósito reservado ao criar a loja
     #[pallet::storage]
-    pub type CreationDeposit<T: Config> = StorageMap<_, Blake2_128Concat, T::StoreId, BalanceOf<T>, ValueQuery>;
+    pub type CreationDeposit<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::StoreId, BalanceOf<T>, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -186,10 +211,13 @@ pub mod pallet {
         pub fn create_store(origin: OriginFor<T>, cid: Vec<u8>) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let bounded: BoundedVec<_, T::MaxCidLen> = cid.clone().try_into().map_err(|_| Error::<T>::CidTooLong)?;
+            let bounded: BoundedVec<_, T::MaxCidLen> =
+                cid.clone().try_into().map_err(|_| Error::<T>::CidTooLong)?;
 
             let store_id = NextStoreId::<T>::get();
-            let next = store_id.checked_add(&One::one()).ok_or(Error::<T>::NoAvailableStoreId)?;
+            let next = store_id
+                .checked_add(&One::one())
+                .ok_or(Error::<T>::NoAvailableStoreId)?;
             let item_id: <T as uniques::Config>::ItemId = store_id
                 .clone()
                 .try_into()
@@ -199,7 +227,8 @@ pub mod pallet {
 
             let deposit = T::CreationDeposit::get();
             if !deposit.is_zero() {
-                CurrencyOf::<T>::reserve(&who, deposit).map_err(|_| Error::<T>::InsufficientBalance)?;
+                CurrencyOf::<T>::reserve(&who, deposit)
+                    .map_err(|_| Error::<T>::InsufficientBalance)?;
             }
             CreationDeposit::<T>::insert(store_id, deposit);
 
@@ -213,20 +242,32 @@ pub mod pallet {
             MetadataCid::<T>::insert(store_id, bounded);
             NextStoreId::<T>::put(next);
 
-            Self::deposit_event(Event::StoreCreated { owner: who, store_id, cid });
+            Self::deposit_event(Event::StoreCreated {
+                owner: who,
+                store_id,
+                cid,
+            });
             Ok(())
         }
 
         /// Atualiza metadados da loja (owner ou operador)
         #[pallet::call_index(1)]
         #[pallet::weight(10_000)]
-        pub fn update_metadata(origin: OriginFor<T>, store_id: T::StoreId, cid: Vec<u8>) -> DispatchResult {
+        pub fn update_metadata(
+            origin: OriginFor<T>,
+            store_id: T::StoreId,
+            cid: Vec<u8>,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             Self::ensure_can_manage(&store_id, &who)?;
 
-            let bounded: BoundedVec<_, T::MaxCidLen> = cid.clone().try_into().map_err(|_| Error::<T>::CidTooLong)?;
+            let bounded: BoundedVec<_, T::MaxCidLen> =
+                cid.clone().try_into().map_err(|_| Error::<T>::CidTooLong)?;
 
             MetadataCid::<T>::insert(store_id.clone(), bounded);
+
+            #[cfg(feature = "universal-registry")]
+            <T as Config>::Registry::set_head(&store_id, &cid);
 
             Self::deposit_event(Event::StoreMetadataUpdated { who, store_id, cid });
             Ok(())
@@ -235,7 +276,11 @@ pub mod pallet {
         /// Adiciona operador (apenas owner)
         #[pallet::call_index(2)]
         #[pallet::weight(10_000)]
-        pub fn add_operator(origin: OriginFor<T>, store_id: T::StoreId, operator: T::AccountId) -> DispatchResult {
+        pub fn add_operator(
+            origin: OriginFor<T>,
+            store_id: T::StoreId,
+            operator: T::AccountId,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let owner = Self::owner_of(&store_id)?;
             ensure!(owner == who, Error::<T>::NotOwner);
@@ -256,14 +301,22 @@ pub mod pallet {
                 return Err(Error::<T>::OperatorLimitReached.into());
             }
 
-            Self::deposit_event(Event::OperatorAdded { owner: who, store_id, operator });
+            Self::deposit_event(Event::OperatorAdded {
+                owner: who,
+                store_id,
+                operator,
+            });
             Ok(())
         }
 
         /// Remove operador (apenas owner)
         #[pallet::call_index(3)]
         #[pallet::weight(10_000)]
-        pub fn remove_operator(origin: OriginFor<T>, store_id: T::StoreId, operator: T::AccountId) -> DispatchResult {
+        pub fn remove_operator(
+            origin: OriginFor<T>,
+            store_id: T::StoreId,
+            operator: T::AccountId,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let owner = Self::owner_of(&store_id)?;
             ensure!(owner == who, Error::<T>::NotOwner);
@@ -277,24 +330,39 @@ pub mod pallet {
             });
             ensure!(found, Error::<T>::OperatorNotFound);
 
-            Self::deposit_event(Event::OperatorRemoved { owner: who, store_id, operator });
+            Self::deposit_event(Event::OperatorRemoved {
+                owner: who,
+                store_id,
+                operator,
+            });
             Ok(())
         }
 
         /// Inicia transferência em duas etapas (apenas owner)
         #[pallet::call_index(4)]
         #[pallet::weight(10_000)]
-        pub fn begin_transfer(origin: OriginFor<T>, store_id: T::StoreId, new_owner: T::AccountId) -> DispatchResult {
+        pub fn begin_transfer(
+            origin: OriginFor<T>,
+            store_id: T::StoreId,
+            new_owner: T::AccountId,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let owner = Self::owner_of(&store_id)?;
             ensure!(owner == who, Error::<T>::NotOwner);
 
-            ensure!(PendingTransfer::<T>::get(store_id.clone()).is_none(), Error::<T>::TransferAlreadyPending);
+            ensure!(
+                PendingTransfer::<T>::get(store_id.clone()).is_none(),
+                Error::<T>::TransferAlreadyPending
+            );
             ensure!(owner != new_owner, Error::<T>::CannotTransferToSelf);
 
             PendingTransfer::<T>::insert(store_id.clone(), new_owner.clone());
 
-            Self::deposit_event(Event::StoreTransferBegun { owner: who, store_id, new_owner });
+            Self::deposit_event(Event::StoreTransferBegun {
+                owner: who,
+                store_id,
+                new_owner,
+            });
             Ok(())
         }
 
@@ -303,16 +371,19 @@ pub mod pallet {
         #[pallet::weight(10_000)]
         pub fn accept_transfer(origin: OriginFor<T>, store_id: T::StoreId) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            let pending = PendingTransfer::<T>::get(store_id.clone()).ok_or(Error::<T>::NoPendingTransfer)?;
+            let pending =
+                PendingTransfer::<T>::get(store_id.clone()).ok_or(Error::<T>::NoPendingTransfer)?;
             ensure!(pending == who, Error::<T>::NotPendingRecipient);
 
             let collection = T::BazariStoresCollectionId::get();
             let item_id = Self::store_item_id(&store_id)?;
-            let old_owner = uniques::Pallet::<T>::owner(collection.clone(), item_id).ok_or(Error::<T>::StoreNotFound)?;
+            let old_owner = uniques::Pallet::<T>::owner(collection.clone(), item_id)
+                .ok_or(Error::<T>::StoreNotFound)?;
 
             let deposit = CreationDeposit::<T>::get(store_id.clone());
             if !deposit.is_zero() {
-                CurrencyOf::<T>::reserve(&who, deposit).map_err(|_| Error::<T>::InsufficientBalance)?;
+                CurrencyOf::<T>::reserve(&who, deposit)
+                    .map_err(|_| Error::<T>::InsufficientBalance)?;
                 CurrencyOf::<T>::unreserve(&old_owner, deposit);
             }
 
@@ -326,7 +397,11 @@ pub mod pallet {
             PendingTransfer::<T>::remove(store_id.clone());
             Operators::<T>::remove(store_id.clone());
 
-            Self::deposit_event(Event::StoreTransferred { old_owner, new_owner: who, store_id });
+            Self::deposit_event(Event::StoreTransferred {
+                old_owner,
+                new_owner: who,
+                store_id,
+            });
             Ok(())
         }
 
@@ -350,14 +425,26 @@ pub mod pallet {
                 rep.volume_planck = rep.volume_planck.saturating_add(volume_delta);
             });
 
-            Self::deposit_event(Event::StoreReputationUpdated { who, store_id, sales_delta, positive_delta, negative_delta, volume_delta });
+            Self::deposit_event(Event::StoreReputationUpdated {
+                who,
+                store_id,
+                sales_delta,
+                positive_delta,
+                negative_delta,
+                volume_delta,
+            });
             Ok(())
         }
     }
 
     impl<T: Config> Pallet<T> {
-        fn store_item_id(store_id: &T::StoreId) -> Result<<T as uniques::Config>::ItemId, Error<T>> {
-            store_id.clone().try_into().map_err(|_| Error::<T>::StoreIdConversionFailed)
+        fn store_item_id(
+            store_id: &T::StoreId,
+        ) -> Result<<T as uniques::Config>::ItemId, Error<T>> {
+            store_id
+                .clone()
+                .try_into()
+                .map_err(|_| Error::<T>::StoreIdConversionFailed)
         }
 
         fn owner_of(store_id: &T::StoreId) -> Result<T::AccountId, Error<T>> {
@@ -381,13 +468,45 @@ pub mod pallet {
     }
 }
 
+#[cfg(feature = "universal-registry")]
+pub trait RegistryBridge<T: Config> {
+    fn set_head(store_id: &T::StoreId, cid: &[u8]);
+}
+
+#[cfg(feature = "universal-registry")]
+impl<T> RegistryBridge<T> for ()
+where
+    T: Config + pallet_universal_registry::Config,
+{
+    fn set_head(store_id: &T::StoreId, cid: &[u8]) {
+        if let Some(namespace) = build_namespace::<T>(store_id) {
+            let _ = UniversalRegistry::<T>::set_head_for(namespace.as_slice(), cid);
+        }
+    }
+}
+
+#[cfg(feature = "universal-registry")]
+fn build_namespace<T>(store_id: &T::StoreId) -> Option<Vec<u8>>
+where
+    T: Config,
+{
+    let item_id: <T as pallet_uniques::Config>::ItemId = store_id.clone().try_into().ok()?;
+    let mut namespace = b"stores/".to_vec();
+    namespace.extend_from_slice(format!("{:?}", item_id).as_bytes());
+    Some(namespace)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use frame_support::{assert_noop, assert_ok, derive_impl, parameter_types, BoundedVec};
     use sp_core::H256;
     use sp_io::TestExternalities;
-    use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, BuildStorage};
+    use sp_runtime::{
+        traits::{BlakeTwo256, IdentityLookup},
+        BuildStorage,
+    };
 
     type AccountId = u64;
     type Balance = u128;
@@ -402,6 +521,8 @@ mod tests {
             System: frame_system,
             Balances: pallet_balances,
             Uniques: pallet_uniques,
+            #[cfg(feature = "universal-registry")]
+            UniversalRegistry: pallet_universal_registry,
             Stores: crate::{Pallet, Call, Storage, Event<T>},
         }
     );
@@ -424,6 +545,18 @@ mod tests {
         pub const MaxOperators: u32 = 3;
         pub const CreationDepositConst: Balance = 0;
     }
+
+    #[cfg(feature = "universal-registry")]
+    mod registry_limits {
+        use super::*;
+        parameter_types! {
+            pub const RegistryNamespaceLimit: u32 = 32;
+            pub const RegistryCidLimit: u32 = 64;
+        }
+    }
+
+    #[cfg(feature = "universal-registry")]
+    use registry_limits::{RegistryCidLimit, RegistryNamespaceLimit};
 
     #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
     impl frame_system::Config for Test {
@@ -460,7 +593,8 @@ mod tests {
         type ItemId = u64;
         type Currency = Balances;
         type ForceOrigin = frame_system::EnsureRoot<AccountId>;
-        type CreateOrigin = frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+        type CreateOrigin =
+            frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
         type Locker = ();
         type CollectionDeposit = CollectionDeposit;
         type ItemDeposit = ItemDeposit;
@@ -473,6 +607,14 @@ mod tests {
         type WeightInfo = ();
     }
 
+    #[cfg(feature = "universal-registry")]
+    impl pallet_universal_registry::Config for Test {
+        type RuntimeEvent = RuntimeEvent;
+        type MaxNamespaceLen = RegistryNamespaceLimit;
+        type MaxHeadCidLen = RegistryCidLimit;
+        type SetHeadOrigin = frame_system::EnsureSigned<AccountId>;
+    }
+
     impl Config for Test {
         type RuntimeEvent = RuntimeEvent;
         type StoreId = u64;
@@ -481,12 +623,20 @@ mod tests {
         type CreationDeposit = CreationDepositConst;
         type ReputationOrigin = frame_system::EnsureSigned<AccountId>;
         type BazariStoresCollectionId = StoresCollection;
+        #[cfg(feature = "universal-registry")]
+        type Registry = ();
     }
 
     fn new_test_ext() -> TestExternalities {
-        let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+        let mut t = frame_system::GenesisConfig::<Test>::default()
+            .build_storage()
+            .unwrap();
         pallet_balances::GenesisConfig::<Test> {
-            balances: vec![(1, 1_000_000_000_000), (2, 1_000_000_000_000), (99, 1_000_000_000_000)],
+            balances: vec![
+                (1, 1_000_000_000_000),
+                (2, 1_000_000_000_000),
+                (99, 1_000_000_000_000),
+            ],
             ..Default::default()
         }
         .assimilate_storage(&mut t)
@@ -526,10 +676,58 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "universal-registry")]
+    #[test]
+    fn update_metadata_sets_registry_head() {
+        new_test_ext().execute_with(|| {
+            let cid = b"cid-123".to_vec();
+            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), cid));
+
+            let new_cid = b"registry-update".to_vec();
+            assert_ok!(Stores::update_metadata(
+                RuntimeOrigin::signed(1),
+                1,
+                new_cid.clone()
+            ));
+
+            assert_eq!(
+                pallet_universal_registry::Pallet::<Test>::head(b"stores/1"),
+                Some(new_cid)
+            );
+        });
+    }
+
+    #[cfg(feature = "universal-registry")]
+    #[test]
+    fn registry_failure_does_not_revert_update_metadata() {
+        new_test_ext().execute_with(|| {
+            let cid = b"cid-initial".to_vec();
+            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), cid));
+
+            let long_cid = vec![b'a'; (RegistryCidLimit::get() + 5) as usize];
+            assert_ok!(Stores::update_metadata(
+                RuntimeOrigin::signed(1),
+                1,
+                long_cid.clone()
+            ));
+
+            // Metadata stored even when registry rejects
+            let stored = MetadataCid::<Test>::get(1).unwrap();
+            assert_eq!(stored.to_vec(), long_cid);
+            assert_eq!(
+                pallet_universal_registry::Pallet::<Test>::head(b"stores/1"),
+                None
+            );
+        });
+    }
+
     #[test]
     fn operators_acl_allows_updates() {
         new_test_ext().execute_with(|| {
-            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), b"cid".to_vec()));
+            assert_ok!(Stores::create_store(
+                RuntimeOrigin::signed(1),
+                b"cid".to_vec()
+            ));
             assert_ok!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 2));
 
             System::assert_last_event(RuntimeEvent::Stores(Event::OperatorAdded {
@@ -539,7 +737,11 @@ mod tests {
             }));
 
             let new_cid = b"cid-operator".to_vec();
-            assert_ok!(Stores::update_metadata(RuntimeOrigin::signed(2), 1, new_cid.clone()));
+            assert_ok!(Stores::update_metadata(
+                RuntimeOrigin::signed(2),
+                1,
+                new_cid.clone()
+            ));
             let expected = BoundedVec::<_, MaxCidLen>::try_from(new_cid.clone()).unwrap();
             assert_eq!(MetadataCid::<Test>::get(1).unwrap(), expected);
 
@@ -550,14 +752,20 @@ mod tests {
             }));
 
             assert_ok!(Stores::remove_operator(RuntimeOrigin::signed(1), 1, 2));
-            assert_noop!(Stores::update_metadata(RuntimeOrigin::signed(2), 1, b"fail".to_vec()), Error::<Test>::NotOwner);
+            assert_noop!(
+                Stores::update_metadata(RuntimeOrigin::signed(2), 1, b"fail".to_vec()),
+                Error::<Test>::NotOwner
+            );
         });
     }
 
     #[test]
     fn begin_and_accept_transfer_flow() {
         new_test_ext().execute_with(|| {
-            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), b"cid".to_vec()));
+            assert_ok!(Stores::create_store(
+                RuntimeOrigin::signed(1),
+                b"cid".to_vec()
+            ));
             assert_ok!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 3));
 
             assert_ok!(Stores::begin_transfer(RuntimeOrigin::signed(1), 1, 2));
@@ -567,7 +775,10 @@ mod tests {
                 new_owner: 2,
             }));
 
-            assert_noop!(Stores::accept_transfer(RuntimeOrigin::signed(3), 1), Error::<Test>::NotPendingRecipient);
+            assert_noop!(
+                Stores::accept_transfer(RuntimeOrigin::signed(3), 1),
+                Error::<Test>::NotPendingRecipient
+            );
 
             assert_ok!(Stores::accept_transfer(RuntimeOrigin::signed(2), 1));
             System::assert_last_event(RuntimeEvent::Stores(Event::StoreTransferred {
@@ -586,7 +797,10 @@ mod tests {
     #[test]
     fn bump_reputation_updates_counters() {
         new_test_ext().execute_with(|| {
-            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), b"cid".to_vec()));
+            assert_ok!(Stores::create_store(
+                RuntimeOrigin::signed(1),
+                b"cid".to_vec()
+            ));
 
             assert_ok!(Stores::bump_reputation(
                 RuntimeOrigin::signed(99),
@@ -617,23 +831,41 @@ mod tests {
     #[test]
     fn operator_errors_are_emitted() {
         new_test_ext().execute_with(|| {
-            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), b"cid".to_vec()));
+            assert_ok!(Stores::create_store(
+                RuntimeOrigin::signed(1),
+                b"cid".to_vec()
+            ));
             assert_ok!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 2));
-            assert_noop!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 2), Error::<Test>::OperatorAlreadyExists);
+            assert_noop!(
+                Stores::add_operator(RuntimeOrigin::signed(1), 1, 2),
+                Error::<Test>::OperatorAlreadyExists
+            );
 
             assert_ok!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 3));
             assert_ok!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 4));
-            assert_noop!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 5), Error::<Test>::OperatorLimitReached);
+            assert_noop!(
+                Stores::add_operator(RuntimeOrigin::signed(1), 1, 5),
+                Error::<Test>::OperatorLimitReached
+            );
 
-            assert_noop!(Stores::remove_operator(RuntimeOrigin::signed(1), 1, 9), Error::<Test>::OperatorNotFound);
+            assert_noop!(
+                Stores::remove_operator(RuntimeOrigin::signed(1), 1, 9),
+                Error::<Test>::OperatorNotFound
+            );
         });
     }
 
     #[test]
     fn begin_transfer_requires_owner() {
         new_test_ext().execute_with(|| {
-            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), b"cid".to_vec()));
-            assert_noop!(Stores::begin_transfer(RuntimeOrigin::signed(2), 1, 2), Error::<Test>::NotOwner);
+            assert_ok!(Stores::create_store(
+                RuntimeOrigin::signed(1),
+                b"cid".to_vec()
+            ));
+            assert_noop!(
+                Stores::begin_transfer(RuntimeOrigin::signed(2), 1, 2),
+                Error::<Test>::NotOwner
+            );
         });
     }
 }
