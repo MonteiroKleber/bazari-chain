@@ -27,6 +27,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use pallet_uniques as uniques;
     use scale_info::prelude::vec::Vec;
+    use codec::{Encode as ScaleEncode, Decode as ScaleDecode};
     #[cfg(feature = "universal-registry")]
     use crate::RegistryBridge;
     use sp_runtime::traits::{CheckedAdd, One, StaticLookup, Zero};
@@ -77,9 +78,9 @@ pub mod pallet {
         /// Origem autorizada a ajustar reputação
         type ReputationOrigin: EnsureOrigin<OriginFor<Self>, Success = Self::AccountId>;
 
-        /// CollectionId fixa (configurável no runtime) usada para as lojas
+        /// Máximo de lojas indexadas por owner (para listagem eficiente)
         #[pallet::constant]
-        type BazariStoresCollectionId: Get<<Self as uniques::Config>::CollectionId>;
+        type MaxStoresPerOwner: Get<u32>;
 
         #[cfg(feature = "universal-registry")]
         type Registry: RegistryBridge<Self>;
@@ -94,6 +95,44 @@ pub mod pallet {
     #[pallet::storage]
     pub type NextStoreId<T: Config> =
         StorageValue<_, T::StoreId, ValueQuery, NextStoreIdDefault<T>>;
+
+    #[pallet::type_value]
+    pub fn NextCollectionIdU32Default<T: Config>() -> u32 { 1 }
+
+    /// Próximo identificador de coleção (sequencial por runtime, em u32)
+    #[pallet::storage]
+    pub type NextCollectionIdU32<T: Config> =
+        StorageValue<_, u32, ValueQuery, NextCollectionIdU32Default<T>>;
+
+    /// Coleção associada a um owner (uma por conta)
+    #[pallet::storage]
+    pub type OwnerCollection<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        <T as frame_system::Config>::AccountId,
+        <T as uniques::Config>::CollectionId,
+        OptionQuery,
+    >;
+
+    /// Coleção onde cada loja (item) foi mintada
+    #[pallet::storage]
+    pub type StoreCollection<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::StoreId,
+        <T as uniques::Config>::CollectionId,
+        OptionQuery,
+    >;
+
+    /// Índice de lojas por owner (para listagens)
+    #[pallet::storage]
+    pub type OwnerStores<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        <T as frame_system::Config>::AccountId,
+        BoundedVec<T::StoreId, <T as Config>::MaxStoresPerOwner>,
+        ValueQuery,
+    >;
 
     /// Metadado CID (bounded) por StoreId
     #[pallet::storage]
@@ -201,11 +240,13 @@ pub mod pallet {
         NotPendingRecipient,
         /// Owner tentou transferir para si mesmo
         CannotTransferToSelf,
+        /// Limite de lojas por owner atingido
+        StoresPerOwnerLimitReached,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Cria uma nova loja com `cid`, mintando um item em `BazariStoresCollectionId`.
+        /// Cria uma nova loja com `cid`, criando/reutilizando a coleção do owner e mintando o item nela.
         #[pallet::call_index(0)]
         #[pallet::weight(10_000)]
         pub fn create_store(origin: OriginFor<T>, cid: Vec<u8>) -> DispatchResult {
@@ -222,8 +263,27 @@ pub mod pallet {
                 .clone()
                 .try_into()
                 .map_err(|_| Error::<T>::StoreIdConversionFailed)?;
-
-            let collection = T::BazariStoresCollectionId::get();
+            // Resolve ou cria a coleção do owner
+            let collection = if let Some(cid_existing) = OwnerCollection::<T>::get(&who) {
+                cid_existing
+            } else {
+                // aloca novo collection id (u32 → CollectionId via SCALE decode)
+                let cid_u32 = NextCollectionIdU32::<T>::get();
+                let next_cid_u32 = cid_u32.checked_add(1).ok_or(Error::<T>::NoAvailableStoreId)?;
+                let mut bytes = ScaleEncode::encode(&cid_u32);
+                let cid: <T as uniques::Config>::CollectionId =
+                    ScaleDecode::decode(&mut &bytes[..])
+                        .map_err(|_| Error::<T>::NoAvailableStoreId)?;
+                // cria a coleção sob o próprio owner como admin
+                uniques::Pallet::<T>::create(
+                    frame_system::RawOrigin::Signed(who.clone()).into(),
+                    cid.clone(),
+                    <T as frame_system::Config>::Lookup::unlookup(who.clone()),
+                )?;
+                OwnerCollection::<T>::insert(&who, cid.clone());
+                NextCollectionIdU32::<T>::put(next_cid_u32);
+                cid
+            };
 
             let deposit = T::CreationDeposit::get();
             if !deposit.is_zero() {
@@ -234,10 +294,18 @@ pub mod pallet {
 
             uniques::Pallet::<T>::mint(
                 frame_system::RawOrigin::Signed(who.clone()).into(),
-                collection,
+                collection.clone(),
                 item_id,
                 <T as frame_system::Config>::Lookup::unlookup(who.clone()),
             )?;
+
+            // Indexa coleção da loja e loja por owner
+            StoreCollection::<T>::insert(store_id, collection.clone());
+            let mut list = OwnerStores::<T>::get(&who);
+            if list.try_push(store_id).is_err() {
+                return Err(Error::<T>::StoresPerOwnerLimitReached.into());
+            }
+            OwnerStores::<T>::insert(&who, list);
 
             MetadataCid::<T>::insert(store_id, bounded);
             NextStoreId::<T>::put(next);
@@ -375,7 +443,7 @@ pub mod pallet {
                 PendingTransfer::<T>::get(store_id.clone()).ok_or(Error::<T>::NoPendingTransfer)?;
             ensure!(pending == who, Error::<T>::NotPendingRecipient);
 
-            let collection = T::BazariStoresCollectionId::get();
+            let collection = StoreCollection::<T>::get(&store_id).ok_or(Error::<T>::StoreNotFound)?;
             let item_id = Self::store_item_id(&store_id)?;
             let old_owner = uniques::Pallet::<T>::owner(collection.clone(), item_id)
                 .ok_or(Error::<T>::StoreNotFound)?;
@@ -396,6 +464,16 @@ pub mod pallet {
 
             PendingTransfer::<T>::remove(store_id.clone());
             Operators::<T>::remove(store_id.clone());
+
+            // Atualiza índice OwnerStores
+            OwnerStores::<T>::mutate(&old_owner, |stores| {
+                if let Some(pos) = stores.iter().position(|s| s == &store_id) {
+                    stores.swap_remove(pos);
+                }
+            });
+            OwnerStores::<T>::mutate(&who, |stores| {
+                let _ = stores.try_push(store_id.clone());
+            });
 
             Self::deposit_event(Event::StoreTransferred {
                 old_owner,
@@ -448,7 +526,7 @@ pub mod pallet {
         }
 
         fn owner_of(store_id: &T::StoreId) -> Result<T::AccountId, Error<T>> {
-            let collection = T::BazariStoresCollectionId::get();
+            let collection = StoreCollection::<T>::get(store_id).ok_or(Error::<T>::StoreNotFound)?;
             let item_id = Self::store_item_id(store_id)?;
             uniques::Pallet::<T>::owner(collection, item_id).ok_or(Error::<T>::StoreNotFound)
         }
@@ -533,7 +611,6 @@ mod tests {
         pub const MaxLocks: u32 = 50;
         pub const MaxReserves: u32 = 0;
         pub const MaxCidLen: u32 = 96;
-        pub const StoresCollection: u32 = 1000;
         pub const CollectionDeposit: Balance = 0;
         pub const ItemDeposit: Balance = 0;
         pub const MetadataDepositBase: Balance = 0;
@@ -544,6 +621,7 @@ mod tests {
         pub const ValueLimit: u32 = 256;
         pub const MaxOperators: u32 = 3;
         pub const CreationDepositConst: Balance = 0;
+        pub const MaxStoresPerOwner: u32 = 64;
     }
 
     #[cfg(feature = "universal-registry")]
@@ -622,7 +700,7 @@ mod tests {
         type MaxOperators = MaxOperators;
         type CreationDeposit = CreationDepositConst;
         type ReputationOrigin = frame_system::EnsureSigned<AccountId>;
-        type BazariStoresCollectionId = StoresCollection;
+        type MaxStoresPerOwner = MaxStoresPerOwner;
         #[cfg(feature = "universal-registry")]
         type Registry = ();
     }
@@ -644,12 +722,6 @@ mod tests {
 
         let mut ext = TestExternalities::new(t);
         ext.execute_with(|| {
-            assert_ok!(pallet_uniques::Pallet::<Test>::force_create(
-                RuntimeOrigin::root(),
-                StoresCollection::get(),
-                1,
-                true,
-            ));
             System::set_block_number(1);
         });
         ext
@@ -787,7 +859,8 @@ mod tests {
                 store_id: 1,
             }));
 
-            let owner = pallet_uniques::Pallet::<Test>::owner(StoresCollection::get(), 1).unwrap();
+            let coll = StoreCollection::<Test>::get(1).expect("store collection must exist");
+            let owner = pallet_uniques::Pallet::<Test>::owner(coll, 1).unwrap();
             assert_eq!(owner, 2);
             assert!(PendingTransfer::<Test>::get(1).is_none());
             assert!(Operators::<Test>::get(1).is_empty());

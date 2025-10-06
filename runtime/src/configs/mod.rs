@@ -172,9 +172,9 @@ impl pallet_template::Config for Runtime {
 // -------- pallet-stores (Fase 1B) --------
 parameter_types! {
     pub const StoresMaxCidLen: u32 = 96; // CID v1 (bytes) safe cap
-    pub const StoresCollectionId: CollectionId = 1000; // default dev collection id
     pub const StoresMaxOperators: u32 = 5;
     pub const StoresCreationDeposit: Balance = 0;
+    pub const StoresMaxStoresPerOwner: u32 = 64;
 }
 
 #[cfg(feature = "with-universal-registry")]
@@ -190,7 +190,7 @@ impl pallet_stores::Config for Runtime {
     type MaxOperators = StoresMaxOperators;
     type CreationDeposit = StoresCreationDeposit;
     type ReputationOrigin = EnsureSigned<AccountId>;
-    type BazariStoresCollectionId = StoresCollectionId;
+    type MaxStoresPerOwner = StoresMaxStoresPerOwner;
     #[cfg(feature = "with-universal-registry")]
     type Registry = ();
 }
