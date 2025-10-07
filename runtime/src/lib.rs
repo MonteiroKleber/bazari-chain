@@ -245,4 +245,8 @@ mod runtime {
     #[cfg(feature = "with-universal-registry")]
     #[runtime::pallet_index(10)]
     pub type UniversalRegistry = pallet_universal_registry;
+
+    // Bazari Identity pallet - Soulbound NFT profiles
+    #[runtime::pallet_index(11)]
+    pub type BazariIdentity = pallet_bazari_identity;
 }

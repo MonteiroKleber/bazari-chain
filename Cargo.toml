@@ -11,6 +11,7 @@ members = [
     "pallets/template",
     "pallets/stores",
     "pallets/universal-registry",
+    "pallets/bazari-identity",
     "runtime",
 ]
 resolver = "2"
@@ -20,6 +21,7 @@ solochain-template-runtime = { path = "./runtime", default-features = false }
 pallet-template = { path = "./pallets/template", default-features = false }
 pallet-stores = { path = "./pallets/stores", default-features = false }
 pallet-universal-registry = { path = "./pallets/universal-registry", default-features = false }
+pallet-bazari-identity = { path = "./pallets/bazari-identity", default-features = false }
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "47.0.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.8.0", default-features = false }

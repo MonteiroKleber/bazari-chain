@@ -29,6 +29,7 @@ pallet-sudo.workspace = true
 pallet-template.workspace = true
 pallet-stores.workspace = true
 pallet-universal-registry = { workspace = true, default-features = false }
+pallet-bazari-identity = { workspace = true, default-features = false }
 pallet-timestamp.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-transaction-payment.workspace = true
@@ -76,6 +77,7 @@ std = [
 	"pallet-uniques/std",
 	"pallet-stores/std",
 	"pallet-universal-registry/std",
+	"pallet-bazari-identity/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",

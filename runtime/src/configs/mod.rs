@@ -236,3 +236,27 @@ impl pallet_uniques::Config for Runtime {
     type DepositPerByte = UniquesDepositPerByte;
     type WeightInfo = pallet_uniques::weights::SubstrateWeight<Runtime>;
 }
+
+// --- pallet-bazari-identity (Sprint 1-2) ---
+parameter_types! {
+    pub const MaxCidLen: u32 = 96;
+    pub const MaxHandleLen: u32 = 32;
+    pub const MaxBadges: u32 = 50;
+    pub const MaxBadgeCodeLen: u32 = 32;
+    pub const MaxHandleHistory: u32 = 10;
+    pub const HandleCooldownBlocks: BlockNumber = 432000; // ~30 dias (6s por bloco)
+    pub const MaxReasonCodeLen: u32 = 64;
+    pub const MaxAuthorizedModules: u32 = 100;
+}
+
+impl pallet_bazari_identity::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type MaxCidLen = MaxCidLen;
+    type MaxHandleLen = MaxHandleLen;
+    type MaxBadges = MaxBadges;
+    type MaxBadgeCodeLen = MaxBadgeCodeLen;
+    type MaxHandleHistory = MaxHandleHistory;
+    type HandleCooldownBlocks = HandleCooldownBlocks;
+    type MaxReasonCodeLen = MaxReasonCodeLen;
+    type MaxAuthorizedModules = MaxAuthorizedModules;
+}
