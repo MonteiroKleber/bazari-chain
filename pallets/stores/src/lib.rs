@@ -19,6 +19,7 @@ pub mod pallet {
         convert::{TryFrom, TryInto},
         marker::PhantomData,
     };
+    use alloc::string::ToString;
     use frame_support::{
         pallet_prelude::*,
         traits::{Currency, EnsureOrigin, ReservableCurrency},
@@ -169,6 +170,11 @@ pub mod pallet {
     pub type CreationDeposit<T: Config> =
         StorageMap<_, Blake2_128Concat, T::StoreId, BalanceOf<T>, ValueQuery>;
 
+    /// Versão incremental da loja (para tracking de publicações)
+    #[pallet::storage]
+    pub type StoreVersion<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::StoreId, u32, ValueQuery>;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -210,6 +216,11 @@ pub mod pallet {
             negative_delta: u64,
             volume_delta: u128,
         },
+        StorePublished {
+            store_id: T::StoreId,
+            version: u32,
+            block_number: BlockNumberFor<T>,
+        },
     }
 
     #[pallet::error]
@@ -246,10 +257,10 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Cria uma nova loja com `cid`, criando/reutilizando a coleção do owner e mintando o item nela.
+        /// Cria uma nova loja com `cid` e `slug`, criando/reutilizando a coleção do owner e mintando o item nela.
         #[pallet::call_index(0)]
         #[pallet::weight(10_000)]
-        pub fn create_store(origin: OriginFor<T>, cid: Vec<u8>) -> DispatchResult {
+        pub fn create_store(origin: OriginFor<T>, cid: Vec<u8>, slug: Vec<u8>) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
             let bounded: BoundedVec<_, T::MaxCidLen> =
@@ -270,7 +281,7 @@ pub mod pallet {
                 // aloca novo collection id (u32 → CollectionId via SCALE decode)
                 let cid_u32 = NextCollectionIdU32::<T>::get();
                 let next_cid_u32 = cid_u32.checked_add(1).ok_or(Error::<T>::NoAvailableStoreId)?;
-                let mut bytes = ScaleEncode::encode(&cid_u32);
+                let bytes = ScaleEncode::encode(&cid_u32);
                 let cid: <T as uniques::Config>::CollectionId =
                     ScaleDecode::decode(&mut &bytes[..])
                         .map_err(|_| Error::<T>::NoAvailableStoreId)?;
@@ -309,6 +320,13 @@ pub mod pallet {
 
             MetadataCid::<T>::insert(store_id, bounded);
             NextStoreId::<T>::put(next);
+
+            // Inicializar versão como 1
+            StoreVersion::<T>::insert(store_id, 1u32);
+
+            // Setar atributos iniciais no NFT
+            Self::set_store_attribute(&store_id, &collection, &item_id, b"version", b"1")?;
+            Self::set_store_attribute(&store_id, &collection, &item_id, b"slug", &slug)?;
 
             Self::deposit_event(Event::StoreCreated {
                 owner: who,
@@ -513,6 +531,67 @@ pub mod pallet {
             });
             Ok(())
         }
+
+        /// Publica loja com múltiplos JSONs (store, categories, products) e ancora CIDs/hashes no NFT
+        #[pallet::call_index(7)]
+        #[pallet::weight(10_000)]
+        pub fn publish_store(
+            origin: OriginFor<T>,
+            store_id: T::StoreId,
+            store_cid: Vec<u8>,
+            store_hash: Vec<u8>,
+            categories_cid: Vec<u8>,
+            categories_hash: Vec<u8>,
+            products_cid: Vec<u8>,
+            products_hash: Vec<u8>,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            // Verificar permissão (owner ou operator)
+            Self::ensure_can_manage(&store_id, &who)?;
+
+            // Validar CIDs
+            let store_cid_bounded: BoundedVec<_, T::MaxCidLen> =
+                store_cid.clone().try_into().map_err(|_| Error::<T>::CidTooLong)?;
+            let categories_cid_bounded: BoundedVec<_, T::MaxCidLen> =
+                categories_cid.clone().try_into().map_err(|_| Error::<T>::CidTooLong)?;
+            let products_cid_bounded: BoundedVec<_, T::MaxCidLen> =
+                products_cid.clone().try_into().map_err(|_| Error::<T>::CidTooLong)?;
+
+            // Incrementar versão
+            let current_version = StoreVersion::<T>::get(&store_id);
+            let new_version = current_version.saturating_add(1);
+            StoreVersion::<T>::insert(&store_id, new_version);
+
+            // Atualizar MetadataCid com store_cid
+            MetadataCid::<T>::insert(store_id, store_cid_bounded);
+
+            // Obter collection e item_id
+            let collection = StoreCollection::<T>::get(&store_id).ok_or(Error::<T>::StoreNotFound)?;
+            let item_id = Self::store_item_id(&store_id)?;
+
+            // Ancorar atributos no NFT via uniques::set_attribute
+            Self::set_store_attribute(&store_id, &collection, &item_id, b"store_cid", &store_cid)?;
+            Self::set_store_attribute(&store_id, &collection, &item_id, b"store_hash", &store_hash)?;
+            Self::set_store_attribute(&store_id, &collection, &item_id, b"categories_cid", &categories_cid)?;
+            Self::set_store_attribute(&store_id, &collection, &item_id, b"categories_hash", &categories_hash)?;
+            Self::set_store_attribute(&store_id, &collection, &item_id, b"products_cid", &products_cid)?;
+            Self::set_store_attribute(&store_id, &collection, &item_id, b"products_hash", &products_hash)?;
+
+            // Atualizar atributo version
+            let version_bytes = new_version.to_string().into_bytes();
+            Self::set_store_attribute(&store_id, &collection, &item_id, b"version", &version_bytes)?;
+
+            // Emitir evento com block_number
+            let block_number = frame_system::Pallet::<T>::block_number();
+            Self::deposit_event(Event::StorePublished {
+                store_id,
+                version: new_version,
+                block_number,
+            });
+
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -542,6 +621,36 @@ pub mod pallet {
             } else {
                 Err(Error::<T>::NotOwner)
             }
+        }
+
+        /// Helper para setar atributos no NFT via uniques::set_attribute
+        fn set_store_attribute(
+            _store_id: &T::StoreId,
+            collection: &<T as uniques::Config>::CollectionId,
+            item_id: &<T as uniques::Config>::ItemId,
+            key: &[u8],
+            value: &[u8],
+        ) -> DispatchResult {
+            // Validar limites do pallet-uniques
+            let key_bounded: BoundedVec<u8, <T as uniques::Config>::KeyLimit> =
+                key.to_vec().try_into().map_err(|_| Error::<T>::CidTooLong)?;
+            let value_bounded: BoundedVec<u8, <T as uniques::Config>::ValueLimit> =
+                value.to_vec().try_into().map_err(|_| Error::<T>::CidTooLong)?;
+
+            // Chamar uniques::set_attribute (força root ou owner)
+            // Como estamos no pallet stores, usamos a origin do owner do NFT
+            let owner = uniques::Pallet::<T>::owner(collection.clone(), item_id.clone())
+                .ok_or(Error::<T>::StoreNotFound)?;
+
+            uniques::Pallet::<T>::set_attribute(
+                frame_system::RawOrigin::Signed(owner).into(),
+                collection.clone(),
+                Some(item_id.clone()),
+                key_bounded,
+                value_bounded,
+            )?;
+
+            Ok(())
         }
     }
 }
@@ -731,14 +840,16 @@ mod tests {
     fn create_store_initialises_state() {
         new_test_ext().execute_with(|| {
             let cid = b"cid-123".to_vec();
+            let slug = b"test-store".to_vec();
             assert_eq!(NextStoreId::<Test>::get(), 1);
 
-            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), cid.clone()));
+            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), cid.clone(), slug.clone()));
 
             let expected = BoundedVec::<_, MaxCidLen>::try_from(cid.clone()).unwrap();
             assert_eq!(MetadataCid::<Test>::get(1).unwrap(), expected);
             assert_eq!(NextStoreId::<Test>::get(), 2);
             assert_eq!(CreationDeposit::<Test>::get(1), 0);
+            assert_eq!(StoreVersion::<Test>::get(1), 1);
 
             System::assert_last_event(RuntimeEvent::Stores(Event::StoreCreated {
                 owner: 1,
@@ -753,7 +864,8 @@ mod tests {
     fn update_metadata_sets_registry_head() {
         new_test_ext().execute_with(|| {
             let cid = b"cid-123".to_vec();
-            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), cid));
+            let slug = b"test-store".to_vec();
+            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), cid, slug));
 
             let new_cid = b"registry-update".to_vec();
             assert_ok!(Stores::update_metadata(
@@ -774,7 +886,8 @@ mod tests {
     fn registry_failure_does_not_revert_update_metadata() {
         new_test_ext().execute_with(|| {
             let cid = b"cid-initial".to_vec();
-            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), cid));
+            let slug = b"test-store".to_vec();
+            assert_ok!(Stores::create_store(RuntimeOrigin::signed(1), cid, slug));
 
             let long_cid = vec![b'a'; (RegistryCidLimit::get() + 5) as usize];
             assert_ok!(Stores::update_metadata(
@@ -798,7 +911,8 @@ mod tests {
         new_test_ext().execute_with(|| {
             assert_ok!(Stores::create_store(
                 RuntimeOrigin::signed(1),
-                b"cid".to_vec()
+                b"cid".to_vec(),
+                b"test-store".to_vec()
             ));
             assert_ok!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 2));
 
@@ -836,7 +950,8 @@ mod tests {
         new_test_ext().execute_with(|| {
             assert_ok!(Stores::create_store(
                 RuntimeOrigin::signed(1),
-                b"cid".to_vec()
+                b"cid".to_vec(),
+                b"test-store".to_vec()
             ));
             assert_ok!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 3));
 
@@ -872,7 +987,8 @@ mod tests {
         new_test_ext().execute_with(|| {
             assert_ok!(Stores::create_store(
                 RuntimeOrigin::signed(1),
-                b"cid".to_vec()
+                b"cid".to_vec(),
+                b"test-store".to_vec()
             ));
 
             assert_ok!(Stores::bump_reputation(
@@ -906,7 +1022,8 @@ mod tests {
         new_test_ext().execute_with(|| {
             assert_ok!(Stores::create_store(
                 RuntimeOrigin::signed(1),
-                b"cid".to_vec()
+                b"cid".to_vec(),
+                b"test-store".to_vec()
             ));
             assert_ok!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 2));
             assert_noop!(
@@ -933,12 +1050,103 @@ mod tests {
         new_test_ext().execute_with(|| {
             assert_ok!(Stores::create_store(
                 RuntimeOrigin::signed(1),
-                b"cid".to_vec()
+                b"cid".to_vec(),
+                b"test-store".to_vec()
             ));
             assert_noop!(
                 Stores::begin_transfer(RuntimeOrigin::signed(2), 1, 2),
                 Error::<Test>::NotOwner
             );
+        });
+    }
+
+    #[test]
+    fn publish_store_sets_attributes_and_increments_version() {
+        new_test_ext().execute_with(|| {
+            // Criar loja
+            assert_ok!(Stores::create_store(
+                RuntimeOrigin::signed(1),
+                b"initial-cid".to_vec(),
+                b"test-store".to_vec()
+            ));
+
+            // Versão inicial deve ser 1
+            assert_eq!(StoreVersion::<Test>::get(1), 1);
+
+            // Publicar loja com JSONs separados
+            let store_cid = b"ipfs-store-cid".to_vec();
+            let store_hash = b"hash-store".to_vec();
+            let categories_cid = b"ipfs-categories-cid".to_vec();
+            let categories_hash = b"hash-categories".to_vec();
+            let products_cid = b"ipfs-products-cid".to_vec();
+            let products_hash = b"hash-products".to_vec();
+
+            assert_ok!(Stores::publish_store(
+                RuntimeOrigin::signed(1),
+                1,
+                store_cid.clone(),
+                store_hash.clone(),
+                categories_cid.clone(),
+                categories_hash.clone(),
+                products_cid.clone(),
+                products_hash.clone(),
+            ));
+
+            // Verificar versão incrementada
+            assert_eq!(StoreVersion::<Test>::get(1), 2);
+
+            // Verificar MetadataCid atualizado
+            let expected_store_cid = BoundedVec::<_, MaxCidLen>::try_from(store_cid).unwrap();
+            assert_eq!(MetadataCid::<Test>::get(1).unwrap(), expected_store_cid);
+
+            // Verificar evento emitido
+            System::assert_last_event(RuntimeEvent::Stores(Event::StorePublished {
+                store_id: 1,
+                version: 2,
+                block_number: 1,
+            }));
+        });
+    }
+
+    #[test]
+    fn publish_store_requires_permission() {
+        new_test_ext().execute_with(|| {
+            // Criar loja com account 1
+            assert_ok!(Stores::create_store(
+                RuntimeOrigin::signed(1),
+                b"cid".to_vec(),
+                b"test-store".to_vec()
+            ));
+
+            // Tentar publicar com account 2 (sem permissão)
+            assert_noop!(
+                Stores::publish_store(
+                    RuntimeOrigin::signed(2),
+                    1,
+                    b"store".to_vec(),
+                    b"hash1".to_vec(),
+                    b"cat".to_vec(),
+                    b"hash2".to_vec(),
+                    b"prod".to_vec(),
+                    b"hash3".to_vec(),
+                ),
+                Error::<Test>::NotOwner
+            );
+
+            // Adicionar account 2 como operador
+            assert_ok!(Stores::add_operator(RuntimeOrigin::signed(1), 1, 2));
+
+            // Agora deve funcionar
+            assert_ok!(Stores::publish_store(
+                RuntimeOrigin::signed(2),
+                1,
+                b"store".to_vec(),
+                b"hash1".to_vec(),
+                b"cat".to_vec(),
+                b"hash2".to_vec(),
+                b"prod".to_vec(),
+                b"hash3".to_vec(),
+            ));
         });
     }
 }
