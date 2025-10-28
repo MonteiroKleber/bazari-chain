@@ -30,13 +30,22 @@ fn testnet_genesis(
     endowed_accounts: Vec<AccountId>,
     root: AccountId,
 ) -> Value {
+    // Preparar contas com BZR inicial
+    let bzr_balances = endowed_accounts
+        .iter()
+        .cloned()
+        .map(|k| (k, 1u128 << 60)) // ~1.15M BZR per account
+        .collect::<Vec<_>>();
+
+    // ZARI: 21 milhões com 12 decimais = 21_000_000 * 10^12
+    let zari_total_supply: u128 = 21_000_000 * 1_000_000_000_000u128;
+
+    // Owner do ZARI (Alice em dev, multisig em produção)
+    let zari_owner = root.clone();
+
     build_struct_json_patch!(RuntimeGenesisConfig {
         balances: BalancesConfig {
-            balances: endowed_accounts
-                .iter()
-                .cloned()
-                .map(|k| (k, 1u128 << 60))
-                .collect::<Vec<_>>(),
+            balances: bzr_balances,
         },
         aura: pallet_aura::GenesisConfig {
             authorities: initial_authorities
@@ -51,6 +60,25 @@ fn testnet_genesis(
                 .collect::<Vec<_>>(),
         },
         sudo: SudoConfig { key: Some(root) },
+
+        // ===== FASE 3: ZARI GENESIS =====
+        assets: pallet_assets::GenesisConfig {
+            // Criar asset ZARI (ID=1)
+            assets: vec![
+                // (asset_id, owner, is_sufficient, min_balance)
+                (1, zari_owner.clone(), true, 1u128), // min_balance = 1 planck
+            ],
+            // Metadata do ZARI
+            metadata: vec![
+                // (asset_id, name, symbol, decimals)
+                (1, b"Bazari Governance Token".to_vec(), b"ZARI".to_vec(), 12),
+            ],
+            // Alocar supply total para owner
+            accounts: vec![
+                // (asset_id, account, balance)
+                (1, zari_owner, zari_total_supply),
+            ],
+        },
     })
 }
 

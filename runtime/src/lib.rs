@@ -61,15 +61,15 @@ impl_opaque_keys! {
 // https://docs.substrate.io/main-docs/build/upgrade#runtime-versioning
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-    spec_name: alloc::borrow::Cow::Borrowed("solochain-template-runtime"),
-    impl_name: alloc::borrow::Cow::Borrowed("solochain-template-runtime"),
+    spec_name: alloc::borrow::Cow::Borrowed("bazari-runtime"),
+    impl_name: alloc::borrow::Cow::Borrowed("bazari-runtime"),
     authoring_version: 1,
     // The version of the runtime specification. A full node will not attempt to use its native
     //   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
-    // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
-    //   the compatible custom types.
-    spec_version: 100,
+    // This value is set to 101 after renaming UNIT to BZR (breaking change)
+    // FASE 3: Bumped to 102 after adding pallet-assets (storage layout change)
+    spec_version: 102,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -98,13 +98,30 @@ pub const DAYS: BlockNumber = HOURS * 24;
 
 pub const BLOCK_HASH_COUNT: BlockNumber = 2400;
 
-// Unit = the base number of indivisible units for balances
-pub const UNIT: Balance = 1_000_000_000_000;
-pub const MILLI_UNIT: Balance = 1_000_000_000;
-pub const MICRO_UNIT: Balance = 1_000_000;
+/// BZR token constants
+/// 1 BZR = 10^12 planck (12 decimals, like DOT/KSM)
+pub const BZR: Balance = 1_000_000_000_000;
+pub const MILLI_BZR: Balance = 1_000_000_000;     // 0.001 BZR
+pub const MICRO_BZR: Balance = 1_000_000;         // 0.000001 BZR
 
-/// Existential deposit.
-pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_UNIT;
+/// Minimum balance to keep account alive (0.001 BZR)
+pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_BZR;
+
+/// Token metadata for RPC exposure
+pub const TOKEN_SYMBOL: &str = "BZR";
+pub const TOKEN_NAME: &str = "Bazari Token";
+pub const TOKEN_DECIMALS: u8 = 12;
+
+// Deprecated aliases for backwards compatibility
+// TODO: Remove after 2-3 releases
+#[deprecated(since = "0.2.0", note = "Use BZR instead")]
+pub const UNIT: Balance = BZR;
+
+#[deprecated(since = "0.2.0", note = "Use MILLI_BZR instead")]
+pub const MILLI_UNIT: Balance = MILLI_BZR;
+
+#[deprecated(since = "0.2.0", note = "Use MICRO_BZR instead")]
+pub const MICRO_UNIT: Balance = MICRO_BZR;
 
 /// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
@@ -249,4 +266,8 @@ mod runtime {
     // Bazari Identity pallet - Soulbound NFT profiles
     #[runtime::pallet_index(11)]
     pub type BazariIdentity = pallet_bazari_identity;
+
+    // Fungible assets (FASE 3: ZARI Token)
+    #[runtime::pallet_index(12)]
+    pub type Assets = pallet_assets;
 }

@@ -45,7 +45,7 @@ use sp_version::RuntimeVersion;
 use super::{
     AccountId, Aura, Balance, Balances, Block, BlockNumber, CollectionId, Hash, ItemId, Nonce,
     PalletInfo, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason,
-    RuntimeOrigin, RuntimeTask, System, EXISTENTIAL_DEPOSIT, MICRO_UNIT, MILLI_UNIT, SLOT_DURATION,
+    RuntimeOrigin, RuntimeTask, System, EXISTENTIAL_DEPOSIT, MICRO_BZR, MILLI_BZR, SLOT_DURATION,
     VERSION,
 };
 
@@ -206,14 +206,14 @@ impl pallet_universal_registry::Config for Runtime {
 // --- pallet-uniques (Fase 1A) ---
 parameter_types! {
     // Depósitos moderados para evitar DoS por armazenamento
-    pub const UniquesCollectionDeposit: Balance = 10 * MILLI_UNIT; // depósito para coleção
-    pub const UniquesItemDeposit: Balance = 1 * MILLI_UNIT;        // depósito por item
+    pub const UniquesCollectionDeposit: Balance = 10 * MILLI_BZR; // depósito para coleção
+    pub const UniquesItemDeposit: Balance = 1 * MILLI_BZR;        // depósito por item
     pub const UniquesKeyLimit: u32 = 32;                           // limite para chaves de atributos
     pub const UniquesValueLimit: u32 = 256;                        // limite para valores de atributos
     pub const UniquesStringLimit: u32 = 256;                       // limite para strings de metadata
-    pub const UniquesMetadataDepositBase: Balance = 1 * MILLI_UNIT;    // base para metadata
-    pub const UniquesAttributeDepositBase: Balance = 1 * MILLI_UNIT;   // base para atributo
-    pub const UniquesDepositPerByte: Balance = MICRO_UNIT;             // custo por byte armazenado
+    pub const UniquesMetadataDepositBase: Balance = 1 * MILLI_BZR;    // base para metadata
+    pub const UniquesAttributeDepositBase: Balance = 1 * MILLI_BZR;   // base para atributo
+    pub const UniquesDepositPerByte: Balance = MICRO_BZR;             // custo por byte armazenado
 }
 
 impl pallet_uniques::Config for Runtime {
@@ -259,4 +259,79 @@ impl pallet_bazari_identity::Config for Runtime {
     type HandleCooldownBlocks = HandleCooldownBlocks;
     type MaxReasonCodeLen = MaxReasonCodeLen;
     type MaxAuthorizedModules = MaxAuthorizedModules;
+}
+
+// --- pallet-assets (FASE 3: ZARI Token) ---
+parameter_types! {
+    // Depósito para criar um asset (10 BZR para evitar spam)
+    pub const AssetDeposit: Balance = 10 * crate::BZR;
+
+    // Depósito por conta que possui o asset (0.1 BZR - storage mínimo)
+    pub const AssetAccountDeposit: Balance = 100 * crate::MILLI_BZR;
+
+    // Depósito base para metadata (1 BZR)
+    pub const MetadataDepositBase: Balance = 1 * crate::BZR;
+
+    // Depósito por byte de metadata (0.001 BZR por byte)
+    pub const MetadataDepositPerByte: Balance = 1 * crate::MILLI_BZR;
+
+    // Depósito para aprovações (delegações) - 0.1 BZR
+    pub const ApprovalDeposit: Balance = 100 * crate::MILLI_BZR;
+
+    // Limite de caracteres para strings (nome/símbolo)
+    pub const StringLimit: u32 = 50;
+
+    // Limite de items removíveis por chamada (anti-spam)
+    pub const RemoveItemsLimit: u32 = 1000;
+}
+
+impl pallet_assets::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+
+    // Tipo de balance (mesma que Balances - u128)
+    type Balance = Balance;
+
+    // AssetId como u32 (permite até ~4 bilhões de assets)
+    type AssetId = u32;
+    type AssetIdParameter = codec::Compact<u32>;
+
+    // BZR usado para pagar depósitos de storage
+    type Currency = Balances;
+
+    // Qualquer conta pode criar asset (em produção, poderia ser RestrictedOrigin)
+    type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
+
+    // Root pode forçar operações (freeze, thaw, destroy)
+    type ForceOrigin = EnsureRoot<AccountId>;
+
+    // Depósitos configurados acima
+    type AssetDeposit = AssetDeposit;
+    type AssetAccountDeposit = AssetAccountDeposit;
+    type MetadataDepositBase = MetadataDepositBase;
+    type MetadataDepositPerByte = MetadataDepositPerByte;
+    type ApprovalDeposit = ApprovalDeposit;
+
+    // Limites de string
+    type StringLimit = StringLimit;
+
+    // Sem freezer customizado (usa padrão)
+    type Freezer = ();
+
+    // Sem data extra por asset
+    type Extra = ();
+
+    // Weights padrão do Substrate
+    type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+
+    // Limite anti-DoS para remoção em lote
+    type RemoveItemsLimit = RemoveItemsLimit;
+
+    // Sem callback customizado
+    type CallbackHandle = ();
+
+    // Holder type (para contas que seguram assets)
+    type Holder = ();
+
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = ();
 }
