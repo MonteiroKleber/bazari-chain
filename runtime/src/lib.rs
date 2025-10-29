@@ -107,6 +107,14 @@ pub const MICRO_BZR: Balance = 1_000_000;         // 0.000001 BZR
 /// Minimum balance to keep account alive (0.001 BZR)
 pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_BZR;
 
+/// Governance constants
+pub const PROPOSAL_BOND_PERCENT: u32 = 5;
+pub const TREASURY_PROPOSAL_BOND_MIN: Balance = 100 * BZR;
+pub const TREASURY_PROPOSAL_BOND_MAX: Balance = 500 * BZR;
+pub const SPEND_PERIOD: BlockNumber = 7 * DAYS;
+pub const BOUNTY_DEPOSIT_BASE: Balance = BZR;
+pub const BOUNTY_VALUE_MINIMUM: Balance = 10 * BZR;
+
 /// Token metadata for RPC exposure
 pub const TOKEN_SYMBOL: &str = "BZR";
 pub const TOKEN_NAME: &str = "Bazari Token";
@@ -270,4 +278,26 @@ mod runtime {
     // Fungible assets (FASE 3: ZARI Token)
     #[runtime::pallet_index(12)]
     pub type Assets = pallet_assets;
+
+    // FASE 7: Governance Pallets
+    #[runtime::pallet_index(13)]
+    pub type Scheduler = pallet_scheduler;
+
+    #[runtime::pallet_index(14)]
+    pub type Preimage = pallet_preimage;
+
+    #[runtime::pallet_index(15)]
+    pub type Treasury = pallet_treasury;
+
+    #[runtime::pallet_index(16)]
+    pub type Multisig = pallet_multisig;
+
+    #[runtime::pallet_index(17)]
+    pub type Council = pallet_collective<Instance1>;
+
+    #[runtime::pallet_index(18)]
+    pub type TechnicalCommittee = pallet_collective<Instance2>;
+
+    #[runtime::pallet_index(19)]
+    pub type Democracy = pallet_democracy;
 }

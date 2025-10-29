@@ -38,15 +38,15 @@ use frame_system::limits::{BlockLength, BlockWeights};
 use frame_system::{EnsureRoot, EnsureSigned};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_runtime::{traits::One, Perbill};
+use sp_runtime::{traits::{One, AccountIdConversion}, Perbill, Permill};
 use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
     AccountId, Aura, Balance, Balances, Block, BlockNumber, CollectionId, Hash, ItemId, Nonce,
-    PalletInfo, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason,
-    RuntimeOrigin, RuntimeTask, System, EXISTENTIAL_DEPOSIT, MICRO_BZR, MILLI_BZR, SLOT_DURATION,
-    VERSION,
+    OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, EXISTENTIAL_DEPOSIT,
+    MICRO_BZR, MILLI_BZR, SLOT_DURATION, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -334,4 +334,188 @@ impl pallet_assets::Config for Runtime {
 
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
+}
+
+// --- FASE 7: Governance Pallets ---
+
+// --- pallet-preimage (required by scheduler & democracy) ---
+parameter_types! {
+    pub const PreimageBaseDeposit: Balance = 1 * crate::BZR;
+    pub const PreimageByteDeposit: Balance = 10 * crate::MICRO_BZR;
+    pub const PreimageHoldReason: RuntimeHoldReason = RuntimeHoldReason::Preimage(pallet_preimage::HoldReason::Preimage);
+}
+
+impl pallet_preimage::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_preimage::weights::SubstrateWeight<Runtime>;
+    type Currency = Balances;
+    type ManagerOrigin = EnsureRoot<AccountId>;
+    type Consideration = ();
+}
+
+// --- pallet-scheduler (required by democracy, treasury, etc) ---
+parameter_types! {
+    pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) *
+        RuntimeBlockWeights::get().max_block;
+}
+
+impl pallet_scheduler::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeOrigin = RuntimeOrigin;
+    type PalletsOrigin = OriginCaller;
+    type RuntimeCall = RuntimeCall;
+    type MaximumWeight = MaximumSchedulerWeight;
+    type ScheduleOrigin = EnsureRoot<AccountId>;
+    type MaxScheduledPerBlock = ConstU32<50>;
+    type WeightInfo = pallet_scheduler::weights::SubstrateWeight<Runtime>;
+    type OriginPrivilegeCmp = frame_support::traits::EqualPrivilegeOnly;
+    type Preimages = Preimage;
+    type BlockNumberProvider = System;
+}
+
+// --- pallet-treasury (community fund management) ---
+parameter_types! {
+    pub const TreasuryPalletId: frame_support::PalletId = frame_support::PalletId(*b"py/trsry");
+    pub const SpendPeriod: BlockNumber = crate::SPEND_PERIOD;
+    pub const Burn: Permill = Permill::from_percent(0); // No burn (0%)
+    pub const MaxApprovals: u32 = 100;
+    pub const PayoutSpendPeriod: BlockNumber = 30 * crate::DAYS;
+    pub TreasuryAccount: AccountId = TreasuryPalletId::get().into_account_truncating();
+}
+
+impl pallet_treasury::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type PalletId = TreasuryPalletId;
+    type Currency = Balances;
+    type RejectOrigin = EnsureRoot<AccountId>;
+    type SpendOrigin = frame_support::traits::NeverEnsureOrigin<Balance>;
+    type SpendPeriod = SpendPeriod;
+    type Burn = Burn;
+    type BurnDestination = ();
+    type MaxApprovals = MaxApprovals;
+    type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
+    type SpendFunds = ();
+    type AssetKind = ();
+    type Beneficiary = AccountId;
+    type BeneficiaryLookup = sp_runtime::traits::IdentityLookup<AccountId>;
+    type Paymaster = frame_support::traits::tokens::PayFromAccount<Balances, TreasuryAccount>;
+    type BalanceConverter = frame_support::traits::tokens::UnityAssetBalanceConversion;
+    type PayoutPeriod = PayoutSpendPeriod;
+    type BlockNumberProvider = System;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = ();
+}
+
+// --- pallet-multisig (multi-signature accounts) ---
+parameter_types! {
+    pub const MultisigDepositBase: Balance = 100 * crate::MILLI_BZR;
+    pub const MultisigDepositFactor: Balance = 50 * crate::MILLI_BZR;
+    pub const MaxSignatories: u32 = 20;
+}
+
+impl pallet_multisig::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type Currency = Balances;
+    type DepositBase = MultisigDepositBase;
+    type DepositFactor = MultisigDepositFactor;
+    type MaxSignatories = MaxSignatories;
+    type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
+    type BlockNumberProvider = System;
+}
+
+// --- pallet-collective: Council ---
+parameter_types! {
+    pub const CouncilMotionDuration: BlockNumber = 7 * crate::DAYS;
+    pub const CouncilMaxProposals: u32 = 100;
+    pub const CouncilMaxMembers: u32 = 13;
+}
+
+pub type CouncilInstance = pallet_collective::Instance1;
+
+impl pallet_collective::Config<CouncilInstance> for Runtime {
+    type RuntimeOrigin = RuntimeOrigin;
+    type Proposal = RuntimeCall;
+    type RuntimeEvent = RuntimeEvent;
+    type MotionDuration = CouncilMotionDuration;
+    type MaxProposals = CouncilMaxProposals;
+    type MaxMembers = CouncilMaxMembers;
+    type DefaultVote = pallet_collective::PrimeDefaultVote;
+    type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
+    type SetMembersOrigin = EnsureRoot<AccountId>;
+    type MaxProposalWeight = frame_support::weights::constants::BlockExecutionWeight;
+    type DisapproveOrigin = EnsureRoot<AccountId>;
+    type KillOrigin = EnsureRoot<AccountId>;
+    type Consideration = ();
+}
+
+// --- pallet-collective: TechnicalCommittee ---
+parameter_types! {
+    pub const TechnicalMotionDuration: BlockNumber = 7 * crate::DAYS;
+    pub const TechnicalMaxProposals: u32 = 100;
+    pub const TechnicalMaxMembers: u32 = 7;
+}
+
+pub type TechnicalCommitteeInstance = pallet_collective::Instance2;
+
+impl pallet_collective::Config<TechnicalCommitteeInstance> for Runtime {
+    type RuntimeOrigin = RuntimeOrigin;
+    type Proposal = RuntimeCall;
+    type RuntimeEvent = RuntimeEvent;
+    type MotionDuration = TechnicalMotionDuration;
+    type MaxProposals = TechnicalMaxProposals;
+    type MaxMembers = TechnicalMaxMembers;
+    type DefaultVote = pallet_collective::PrimeDefaultVote;
+    type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
+    type SetMembersOrigin = EnsureRoot<AccountId>;
+    type MaxProposalWeight = frame_support::weights::constants::BlockExecutionWeight;
+    type DisapproveOrigin = EnsureRoot<AccountId>;
+    type KillOrigin = EnsureRoot<AccountId>;
+    type Consideration = ();
+}
+
+// --- pallet-democracy (on-chain voting) ---
+parameter_types! {
+    pub const LaunchPeriod: BlockNumber = 7 * crate::DAYS;
+    pub const VotingPeriod: BlockNumber = 7 * crate::DAYS;
+    pub const FastTrackVotingPeriod: BlockNumber = 3 * crate::HOURS;
+    pub const MinimumDeposit: Balance = 100 * crate::BZR;
+    pub const EnactmentPeriod: BlockNumber = 2 * crate::DAYS;
+    pub const CooloffPeriod: BlockNumber = 7 * crate::DAYS;
+    pub const MaxVotes: u32 = 100;
+    pub const MaxProposals: u32 = 100;
+    pub const MaxDeposits: u32 = 100;
+    pub const MaxBlacklisted: u32 = 100;
+}
+
+impl pallet_democracy::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type EnactmentPeriod = EnactmentPeriod;
+    type LaunchPeriod = LaunchPeriod;
+    type VotingPeriod = VotingPeriod;
+    type VoteLockingPeriod = EnactmentPeriod;
+    type MinimumDeposit = MinimumDeposit;
+    type ExternalOrigin = EnsureRoot<AccountId>;
+    type ExternalMajorityOrigin = EnsureRoot<AccountId>;
+    type ExternalDefaultOrigin = EnsureRoot<AccountId>;
+    type SubmitOrigin = EnsureSigned<AccountId>;
+    type FastTrackOrigin = EnsureRoot<AccountId>;
+    type InstantOrigin = EnsureRoot<AccountId>;
+    type InstantAllowed = ConstBool<true>;
+    type FastTrackVotingPeriod = FastTrackVotingPeriod;
+    type CancellationOrigin = EnsureRoot<AccountId>;
+    type BlacklistOrigin = EnsureRoot<AccountId>;
+    type CancelProposalOrigin = EnsureRoot<AccountId>;
+    type VetoOrigin = frame_system::EnsureNever<AccountId>;
+    type CooloffPeriod = CooloffPeriod;
+    type Slash = ();
+    type Scheduler = Scheduler;
+    type PalletsOrigin = OriginCaller;
+    type MaxVotes = MaxVotes;
+    type WeightInfo = pallet_democracy::weights::SubstrateWeight<Runtime>;
+    type MaxProposals = MaxProposals;
+    type Preimages = Preimage;
+    type MaxDeposits = MaxDeposits;
+    type MaxBlacklisted = MaxBlacklisted;
 }

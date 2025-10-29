@@ -35,6 +35,12 @@ pallet-timestamp.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-transaction-payment.workspace = true
 pallet-uniques.workspace = true
+pallet-treasury.workspace = true
+pallet-democracy.workspace = true
+pallet-collective.workspace = true
+pallet-multisig.workspace = true
+pallet-scheduler.workspace = true
+pallet-preimage.workspace = true
 scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = ["alloc"] }
 sp-api.workspace = true
@@ -80,6 +86,12 @@ std = [
 	"pallet-stores/std",
 	"pallet-universal-registry/std",
 	"pallet-bazari-identity/std",
+	"pallet-treasury/std",
+	"pallet-democracy/std",
+	"pallet-collective/std",
+	"pallet-multisig/std",
+	"pallet-scheduler/std",
+	"pallet-preimage/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",
