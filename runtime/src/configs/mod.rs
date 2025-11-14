@@ -28,6 +28,7 @@ use frame_support::{
     derive_impl, parameter_types,
     traits::{
         AsEnsureOriginWithArg, ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, VariantCountOf,
+        EitherOfDiverse, MapSuccess,
     },
     weights::{
         constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -38,7 +39,7 @@ use frame_system::limits::{BlockLength, BlockWeights};
 use frame_system::{EnsureRoot, EnsureSigned};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_runtime::{traits::{One, AccountIdConversion}, Perbill, Permill};
+use sp_runtime::{traits::{One, AccountIdConversion, Replace}, Perbill, Permill};
 use sp_version::RuntimeVersion;
 
 // Local module imports
@@ -261,6 +262,33 @@ impl pallet_bazari_identity::Config for Runtime {
     type MaxAuthorizedModules = MaxAuthorizedModules;
 }
 
+// --- pallet-bazari-commerce (Orders, Sales, Commissions) ---
+parameter_types! {
+    pub const MaxItemsPerOrder: u32 = 50;
+    pub const MaxItemNameLen: u32 = 128;
+    pub const PlatformFeeBps: u32 = 250; // 2.5% = 250 basis points
+}
+
+impl pallet_bazari_commerce::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type OrderId = u64;
+    type MaxItemsPerOrder = MaxItemsPerOrder;
+    type MaxItemNameLen = MaxItemNameLen;
+    type PlatformFeeBps = PlatformFeeBps;
+}
+
+// --- pallet-bazari-escrow (Escrow for order payments) ---
+impl pallet_bazari_escrow::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    // DAOOrigin: Either Root OR Council (≥50% majority) can force refunds
+    type DAOOrigin = EitherOfDiverse<
+        EnsureRoot<AccountId>,
+        pallet_collective::EnsureProportionAtLeast<AccountId, pallet_collective::Instance1, 1, 2>
+    >;
+}
+
 // --- pallet-assets (FASE 3: ZARI Token) ---
 parameter_types! {
     // Depósito para criar um asset (10 BZR para evitar spam)
@@ -336,6 +364,100 @@ impl pallet_assets::Config for Runtime {
     type BenchmarkHelper = ();
 }
 
+// --- pallet-bazari-rewards (Cashback and Missions) ---
+parameter_types! {
+    pub const ZariAssetId: u32 = 1; // ZARI token = AssetId 1
+}
+
+impl pallet_bazari_rewards::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Assets = pallet_assets::Pallet<Runtime>;
+    type ZariAssetId = ZariAssetId;
+    // DAO or Council can create missions
+    type DAOOrigin = EitherOfDiverse<
+        EnsureRoot<AccountId>,
+        pallet_collective::EnsureProportionAtLeast<AccountId, pallet_collective::Instance1, 1, 2>
+    >;
+    type WeightInfo = ();
+}
+
+// --- pallet-bazari-attestation (Proof of Handoff & Delivery) ---
+parameter_types! {
+    pub const MaxSigners: u32 = 10;
+    pub const MaxCidLength: u32 = 64;
+}
+
+impl pallet_bazari_attestation::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type MaxSigners = MaxSigners;
+    type MaxCidLength = MaxCidLength;
+    type WeightInfo = ();
+}
+
+// --- pallet-bazari-fulfillment (Courier Registry, Staking & Reputation) ---
+parameter_types! {
+    pub const MinCourierStake: Balance = 1000 * crate::BZR;
+    pub const MaxServiceAreas: u32 = 10;
+    pub const MaxDeliveriesPerCourier: u32 = 100;
+}
+
+impl pallet_bazari_fulfillment::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type MinCourierStake = MinCourierStake;
+    type MaxServiceAreas = MaxServiceAreas;
+    type MaxDeliveriesPerCourier = MaxDeliveriesPerCourier;
+    // DAOOrigin: Either Root OR Council (≥50% majority) can slash couriers
+    type DAOOrigin = EitherOfDiverse<
+        EnsureRoot<AccountId>,
+        pallet_collective::EnsureProportionAtLeast<AccountId, pallet_collective::Instance1, 1, 2>
+    >;
+    type WeightInfo = ();
+}
+
+// pallet-bazari-affiliate configuration
+parameter_types! {
+	// Commission rates per level in basis points (5%, 2.5%, 1.25%, 0.62%, 0.31%)
+	pub const CommissionRates: [u32; 5] = [500, 250, 125, 62, 31];
+	// Maximum referral depth (5 levels)
+	pub const MaxReferralDepth: u8 = 5;
+	// Maximum direct referrals per account
+	pub const MaxDirectReferrals: u32 = 1000;
+}
+
+impl pallet_bazari_affiliate::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type CommissionRates = CommissionRates;
+	type MaxReferralDepth = MaxReferralDepth;
+	type MaxDirectReferrals = MaxDirectReferrals;
+	type WeightInfo = ();
+}
+
+// pallet-bazari-fee configuration
+parameter_types! {
+	// Default platform fee (5% = 500 bps)
+	pub const DefaultPlatformFee: u32 = 500;
+	// Treasury account (derived from PalletId)
+	pub TreasuryAccountId: AccountId = TreasuryPalletId::get().into_account_truncating();
+	// Minimum order amount to apply fees
+	pub const MinOrderAmount: Balance = 100 * crate::MILLI_BZR; // 0.1 BZR
+}
+
+impl pallet_bazari_fee::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type DefaultPlatformFee = DefaultPlatformFee;
+	type TreasuryAccount = TreasuryAccountId;
+	type MinOrderAmount = MinOrderAmount;
+	// DAOOrigin: Either Root OR Council (≥50% majority) can update platform fee
+	type DAOOrigin = EitherOfDiverse<
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureProportionAtLeast<AccountId, pallet_collective::Instance1, 1, 2>
+	>;
+	type WeightInfo = ();
+}
+
 // --- FASE 7: Governance Pallets ---
 
 // --- pallet-preimage (required by scheduler & democracy) ---
@@ -381,6 +503,8 @@ parameter_types! {
     pub const MaxApprovals: u32 = 100;
     pub const PayoutSpendPeriod: BlockNumber = 30 * crate::DAYS;
     pub TreasuryAccount: AccountId = TreasuryPalletId::get().into_account_truncating();
+    // Max spend limit for both Root and Council origins
+    pub const CouncilSpendMax: Balance = 1_000_000 * crate::BZR;
 }
 
 impl pallet_treasury::Config for Runtime {
@@ -388,7 +512,18 @@ impl pallet_treasury::Config for Runtime {
     type PalletId = TreasuryPalletId;
     type Currency = Balances;
     type RejectOrigin = EnsureRoot<AccountId>;
-    type SpendOrigin = frame_support::traits::NeverEnsureOrigin<Balance>;
+    // SpendOrigin: Either Root OR Council (≥50% majority) can spend from treasury
+    // Max spend of 1M BZR per call for both origins
+    // Council executes treasury.spendLocal() directly via motions
+    // Root can also execute for emergency/testing purposes
+    // Uses idiomatic EitherOfDiverse pattern from Polkadot/Kusama
+    type SpendOrigin = MapSuccess<
+        EitherOfDiverse<
+            frame_system::EnsureRootWithSuccess<AccountId, CouncilSpendMax>,
+            pallet_collective::EnsureProportionAtLeast<AccountId, pallet_collective::Instance1, 1, 2>
+        >,
+        Replace<CouncilSpendMax>
+    >;
     type SpendPeriod = SpendPeriod;
     type Burn = Burn;
     type BurnDestination = ();
@@ -424,16 +559,50 @@ impl pallet_multisig::Config for Runtime {
     type BlockNumberProvider = System;
 }
 
+// --- pallet-vesting (token vesting schedules) ---
+parameter_types! {
+    /// Minimum amount for vested transfer (100 BZR)
+    pub const MinVestedTransfer: Balance = 100 * crate::BZR;
+
+    /// Withdraw reasons for unvested funds
+    /// Allow all except TRANSFER and RESERVE
+    pub UnvestedFundsAllowedWithdrawReasons: frame_support::traits::WithdrawReasons =
+        frame_support::traits::WithdrawReasons::except(
+            frame_support::traits::WithdrawReasons::TRANSFER |
+            frame_support::traits::WithdrawReasons::RESERVE
+        );
+
+    /// Maximum number of vesting schedules per account
+    pub const MaxVestingSchedules: u32 = 28;
+}
+
+impl pallet_vesting::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type BlockNumberToBalance = sp_runtime::traits::ConvertInto;
+    type MinVestedTransfer = MinVestedTransfer;
+    type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
+    type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+    type BlockNumberProvider = System;
+
+    // Maximum vesting schedules constant
+    const MAX_VESTING_SCHEDULES: u32 = 28;
+}
+
 // --- pallet-collective: Council ---
 parameter_types! {
     pub const CouncilMotionDuration: BlockNumber = 7 * crate::DAYS;
     pub const CouncilMaxProposals: u32 = 100;
     pub const CouncilMaxMembers: u32 = 13;
+    // Allow proposals to use up to 50% of block weight
+    // NORMAL_DISPATCH_RATIO is 75%, we use 50% to be safe
+    pub MaxCollectivesProposalWeight: Weight = Weight::from_parts(
+        WEIGHT_REF_TIME_PER_SECOND.saturating_mul(2) / 2,
+        u64::MAX,
+    );
 }
 
-pub type CouncilInstance = pallet_collective::Instance1;
-
-impl pallet_collective::Config<CouncilInstance> for Runtime {
+impl pallet_collective::Config<pallet_collective::Instance1> for Runtime {
     type RuntimeOrigin = RuntimeOrigin;
     type Proposal = RuntimeCall;
     type RuntimeEvent = RuntimeEvent;
@@ -443,7 +612,9 @@ impl pallet_collective::Config<CouncilInstance> for Runtime {
     type DefaultVote = pallet_collective::PrimeDefaultVote;
     type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
     type SetMembersOrigin = EnsureRoot<AccountId>;
-    type MaxProposalWeight = frame_support::weights::constants::BlockExecutionWeight;
+    // Increase MaxProposalWeight to allow treasury.spendLocal proposals
+    // Using MAXIMUM_BLOCK_WEIGHT / 2 (50% of block weight)
+    type MaxProposalWeight = MaxCollectivesProposalWeight;
     type DisapproveOrigin = EnsureRoot<AccountId>;
     type KillOrigin = EnsureRoot<AccountId>;
     type Consideration = ();
@@ -468,7 +639,7 @@ impl pallet_collective::Config<TechnicalCommitteeInstance> for Runtime {
     type DefaultVote = pallet_collective::PrimeDefaultVote;
     type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
     type SetMembersOrigin = EnsureRoot<AccountId>;
-    type MaxProposalWeight = frame_support::weights::constants::BlockExecutionWeight;
+    type MaxProposalWeight = MaxCollectivesProposalWeight;
     type DisapproveOrigin = EnsureRoot<AccountId>;
     type KillOrigin = EnsureRoot<AccountId>;
     type Consideration = ();
@@ -476,11 +647,18 @@ impl pallet_collective::Config<TechnicalCommitteeInstance> for Runtime {
 
 // --- pallet-democracy (on-chain voting) ---
 parameter_types! {
-    pub const LaunchPeriod: BlockNumber = 7 * crate::DAYS;
-    pub const VotingPeriod: BlockNumber = 7 * crate::DAYS;
+    // Democracy periods adjusted for pre-production/testing
+    // LaunchPeriod: How often the most-endorsed proposal becomes a referendum
+    pub const LaunchPeriod: BlockNumber = 2 * crate::HOURS; // Was: 7 * DAYS
+    // VotingPeriod: How long referendum voting lasts
+    pub const VotingPeriod: BlockNumber = 1 * crate::DAYS;  // Was: 7 * DAYS
+    // FastTrackVotingPeriod: For emergency/fast-tracked proposals
     pub const FastTrackVotingPeriod: BlockNumber = 3 * crate::HOURS;
+    // MinimumDeposit: Required to propose (and to second)
     pub const MinimumDeposit: Balance = 100 * crate::BZR;
-    pub const EnactmentPeriod: BlockNumber = 2 * crate::DAYS;
+    // EnactmentPeriod: Delay between approval and execution
+    pub const EnactmentPeriod: BlockNumber = 1 * crate::HOURS; // Was: 2 * DAYS
+    // CooloffPeriod: Delay before rejected proposal can be re-submitted
     pub const CooloffPeriod: BlockNumber = 7 * crate::DAYS;
     pub const MaxVotes: u32 = 100;
     pub const MaxProposals: u32 = 100;
@@ -519,3 +697,25 @@ impl pallet_democracy::Config for Runtime {
     type MaxDeposits = MaxDeposits;
     type MaxBlacklisted = MaxBlacklisted;
 }
+
+
+// ===== Randomness Collective Flip =====
+impl pallet_insecure_randomness_collective_flip::Config for Runtime {}
+
+// ===== Bazari Dispute =====
+parameter_types! {
+	pub const CommitPhaseDuration: BlockNumber = 14_400; // ~24h (6s blocks)
+	pub const RevealPhaseDuration: BlockNumber = 14_400; // ~24h (6s blocks)
+	pub const MinJurorReputation: u32 = 500;
+}
+
+impl pallet_bazari_dispute::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type Randomness = crate::RandomnessCollectiveFlip;
+	type CommitPhaseDuration = CommitPhaseDuration;
+	type RevealPhaseDuration = RevealPhaseDuration;
+	type MinJurorReputation = MinJurorReputation;
+	type WeightInfo = ();
+}
+

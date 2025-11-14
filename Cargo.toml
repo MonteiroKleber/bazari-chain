@@ -12,6 +12,14 @@ members = [
     "pallets/stores",
     "pallets/universal-registry",
     "pallets/bazari-identity",
+    "pallets/bazari-commerce",
+    "pallets/bazari-escrow",
+    "pallets/bazari-rewards",
+    "pallets/bazari-attestation",
+    "pallets/bazari-fulfillment",
+    "pallets/bazari-affiliate",
+    "pallets/bazari-fee",
+    "pallets/bazari-dispute",
     "runtime",
 ]
 resolver = "2"
@@ -22,6 +30,15 @@ pallet-template = { path = "./pallets/template", default-features = false }
 pallet-stores = { path = "./pallets/stores", default-features = false }
 pallet-universal-registry = { path = "./pallets/universal-registry", default-features = false }
 pallet-bazari-identity = { path = "./pallets/bazari-identity", default-features = false }
+pallet-bazari-commerce = { path = "./pallets/bazari-commerce", default-features = false }
+pallet-bazari-escrow = { path = "./pallets/bazari-escrow", default-features = false }
+pallet-bazari-rewards = { path = "./pallets/bazari-rewards", default-features = false }
+pallet-bazari-attestation = { path = "./pallets/bazari-attestation", default-features = false }
+pallet-bazari-fulfillment = { path = "./pallets/bazari-fulfillment", default-features = false }
+pallet-bazari-affiliate = { path = "./pallets/bazari-affiliate", default-features = false }
+pallet-bazari-fee = { path = "./pallets/bazari-fee", default-features = false }
+pallet-bazari-dispute = { path = "./pallets/bazari-dispute", default-features = false }
+pallet-insecure-randomness-collective-flip = { version = "28.0.0", default-features = false }
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "47.0.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.8.0", default-features = false }
@@ -88,6 +105,7 @@ pallet-collective = { version = "40.0.0", default-features = false }
 pallet-multisig = { version = "40.0.0", default-features = false }
 pallet-scheduler = { version = "41.0.0", default-features = false }
 pallet-preimage = { version = "40.0.0", default-features = false }
+pallet-vesting = { version = "40.0.0", default-features = false }
 
 [profile.release]
 opt-level = 3

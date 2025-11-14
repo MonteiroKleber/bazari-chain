@@ -1,0 +1,44 @@
+[package]
+name = "pallet-bazari-fee"
+version = "0.1.0"
+edition = "2021"
+license = "MIT-0"
+publish = false
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-runtime = { workspace = true }
+pallet-bazari-commerce = { path = "../bazari-commerce", default-features = false }
+pallet-bazari-affiliate = { path = "../bazari-affiliate", default-features = false }
+
+[dev-dependencies]
+sp-core = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+pallet-balances = { workspace = true, features = ["std"] }
+pallet-uniques = { workspace = true, features = ["std"] }
+pallet-stores = { workspace = true, features = ["std"] }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"scale-info/std",
+	"serde/std",
+	"frame-support/std",
+	"frame-system/std",
+	"sp-runtime/std",
+	"pallet-bazari-commerce/std",
+	"pallet-bazari-affiliate/std",
+]
+runtime-benchmarks = [
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+]

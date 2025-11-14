@@ -31,6 +31,15 @@ pallet-template.workspace = true
 pallet-stores.workspace = true
 pallet-universal-registry = { workspace = true, default-features = false }
 pallet-bazari-identity = { workspace = true, default-features = false }
+pallet-bazari-commerce = { path = "../pallets/bazari-commerce", default-features = false }
+pallet-bazari-escrow = { path = "../pallets/bazari-escrow", default-features = false }
+pallet-bazari-rewards = { path = "../pallets/bazari-rewards", default-features = false }
+pallet-bazari-attestation = { path = "../pallets/bazari-attestation", default-features = false }
+pallet-bazari-fulfillment = { workspace = true }
+pallet-bazari-affiliate = { workspace = true }
+pallet-bazari-fee = { workspace = true }
+pallet-bazari-dispute = { workspace = true }
+pallet-insecure-randomness-collective-flip = { workspace = true }
 pallet-timestamp.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-transaction-payment.workspace = true
@@ -41,6 +50,7 @@ pallet-collective.workspace = true
 pallet-multisig.workspace = true
 pallet-scheduler.workspace = true
 pallet-preimage.workspace = true
+pallet-vesting.workspace = true
 scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = ["alloc"] }
 sp-api.workspace = true
@@ -86,12 +96,22 @@ std = [
 	"pallet-stores/std",
 	"pallet-universal-registry/std",
 	"pallet-bazari-identity/std",
+	"pallet-bazari-commerce/std",
+	"pallet-bazari-escrow/std",
+	"pallet-bazari-rewards/std",
+	"pallet-bazari-attestation/std",
+	"pallet-bazari-fulfillment/std",
+	"pallet-bazari-affiliate/std",
+	"pallet-bazari-fee/std",
+	"pallet-bazari-dispute/std",
+	"pallet-insecure-randomness-collective-flip/std",
 	"pallet-treasury/std",
 	"pallet-democracy/std",
 	"pallet-collective/std",
 	"pallet-multisig/std",
 	"pallet-scheduler/std",
 	"pallet-preimage/std",
+	"pallet-vesting/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",
@@ -124,6 +144,13 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-uniques/runtime-benchmarks",
+	"pallet-bazari-commerce/runtime-benchmarks",
+	"pallet-bazari-escrow/runtime-benchmarks",
+	"pallet-bazari-rewards/runtime-benchmarks",
+	"pallet-bazari-attestation/runtime-benchmarks",
+	"pallet-bazari-fulfillment/runtime-benchmarks",
+	"pallet-bazari-affiliate/runtime-benchmarks",
+	"pallet-bazari-fee/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 
@@ -141,6 +168,13 @@ try-runtime = [
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"pallet-uniques/try-runtime",
+	"pallet-bazari-commerce/try-runtime",
+	"pallet-bazari-escrow/try-runtime",
+	"pallet-bazari-rewards/try-runtime",
+	"pallet-bazari-attestation/try-runtime",
+	"pallet-bazari-fulfillment/try-runtime",
+	"pallet-bazari-affiliate/try-runtime",
+	"pallet-bazari-fee/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 

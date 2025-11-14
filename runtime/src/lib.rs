@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![recursion_limit = "512"]
 
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
@@ -69,7 +70,15 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 101 after renaming UNIT to BZR (breaking change)
     // FASE 3: Bumped to 102 after adding pallet-assets (storage layout change)
-    spec_version: 102,
+    // FASE 9: Bumped to 103 after adding pallet-vesting (storage layout change)
+    // FASE 10: Bumped to 104 after fixing Treasury SpendOrigin (allow Council >= 50%)
+    // FASE 11: Bumped to 105 after implementing Council origin support for Treasury.spendLocal
+    // FASE 12: Bumped to 106 after fixing BadOrigin error by using sudo wrapper approach for Council Treasury spends
+    // FASE 13: Bumped to 107 after fixing BadOrigin: Council can't call sudo, so using EitherOfDiverse to allow Council direct access
+    // FASE 14: Bumped to 108 after fixing root cause: frontend threshold=1 + using idiomatic EitherOfDiverse pattern + lengthBound fix
+    // FASE 15: Bumped to 109 after reducing SpendPeriod from 7 days to 30 minutes for pre-production testing (faster Treasury payouts)
+    // FASE 16: Bumped to 110 after adjusting Democracy periods: LaunchPeriod 2h, VotingPeriod 1d, EnactmentPeriod 1h (was 7d/7d/2d)
+    spec_version: 110,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -111,7 +120,9 @@ pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_BZR;
 pub const PROPOSAL_BOND_PERCENT: u32 = 5;
 pub const TREASURY_PROPOSAL_BOND_MIN: Balance = 100 * BZR;
 pub const TREASURY_PROPOSAL_BOND_MAX: Balance = 500 * BZR;
-pub const SPEND_PERIOD: BlockNumber = 7 * DAYS;
+/// Treasury spend period: 30 minutes (for quick testing/pre-production)
+/// Production should use longer periods (e.g., 7 * DAYS)
+pub const SPEND_PERIOD: BlockNumber = 30 * MINUTES; // 30 minutes = 300 blocks
 pub const BOUNTY_DEPOSIT_BASE: Balance = BZR;
 pub const BOUNTY_VALUE_MINIMUM: Balance = 10 * BZR;
 
@@ -300,4 +311,44 @@ mod runtime {
 
     #[runtime::pallet_index(19)]
     pub type Democracy = pallet_democracy;
+
+    // FASE 9: Vesting pallet for token release schedules
+    #[runtime::pallet_index(20)]
+    pub type Vesting = pallet_vesting;
+
+    // Bazari Commerce pallet - Orders, Sales, Commissions
+    #[runtime::pallet_index(21)]
+    pub type BazariCommerce = pallet_bazari_commerce;
+
+    // Bazari Escrow pallet - Secure fund locking for orders
+    #[runtime::pallet_index(22)]
+    pub type BazariEscrow = pallet_bazari_escrow;
+
+    // Bazari Rewards pallet - Cashback and missions
+    #[runtime::pallet_index(23)]
+    pub type BazariRewards = pallet_bazari_rewards;
+
+    // Bazari Attestation pallet - Cryptographic proofs for handoff and delivery
+    #[runtime::pallet_index(24)]
+    pub type BazariAttestation = pallet_bazari_attestation;
+
+    // Bazari Fulfillment pallet - Courier registry, staking, and reputation
+    #[runtime::pallet_index(25)]
+    pub type BazariFulfillment = pallet_bazari_fulfillment;
+
+    // Bazari Affiliate pallet - Multi-level affiliate commission system with DAG
+    #[runtime::pallet_index(26)]
+    pub type BazariAffiliate = pallet_bazari_affiliate;
+
+    // Bazari Fee pallet - Auto-splitting de pagamentos (platform + affiliate + seller)
+    #[runtime::pallet_index(27)]
+    pub type BazariFee = pallet_bazari_fee;
+
+    // Insecure Randomness Collective Flip - VRF source for dispute juror selection
+    #[runtime::pallet_index(28)]
+    pub type RandomnessCollectiveFlip = pallet_insecure_randomness_collective_flip;
+
+    // Bazari Dispute pallet - VRF juror selection + commit-reveal voting
+    #[runtime::pallet_index(29)]
+    pub type BazariDispute = pallet_bazari_dispute;
 }
