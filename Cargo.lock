@@ -6039,6 +6039,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-bazari-recurring-payments"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-bazari-rewards"
 version = "0.1.0"
 dependencies = [
@@ -6049,6 +6063,19 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
+name = "pallet-bazari-work-agreements"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -9889,7 +9916,9 @@ dependencies = [
  "pallet-bazari-fee",
  "pallet-bazari-fulfillment",
  "pallet-bazari-identity",
+ "pallet-bazari-recurring-payments",
  "pallet-bazari-rewards",
+ "pallet-bazari-work-agreements",
  "pallet-collective",
  "pallet-democracy",
  "pallet-grandpa",

@@ -78,7 +78,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // FASE 14: Bumped to 108 after fixing root cause: frontend threshold=1 + using idiomatic EitherOfDiverse pattern + lengthBound fix
     // FASE 15: Bumped to 109 after reducing SpendPeriod from 7 days to 30 minutes for pre-production testing (faster Treasury payouts)
     // FASE 16: Bumped to 110 after adjusting Democracy periods: LaunchPeriod 2h, VotingPeriod 1d, EnactmentPeriod 1h (was 7d/7d/2d)
-    spec_version: 110,
+    // WORK: Bumped to 111 after adding pallet-bazari-work-agreements for on-chain work agreement registration
+    // PAY: Bumped to 112 after adding pallet-bazari-recurring-payments for on-chain recurring payment contracts
+    spec_version: 112,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -351,4 +353,12 @@ mod runtime {
     // Bazari Dispute pallet - VRF juror selection + commit-reveal voting
     #[runtime::pallet_index(29)]
     pub type BazariDispute = pallet_bazari_dispute;
+
+    // Bazari Work Agreements pallet - On-chain work agreement registration
+    #[runtime::pallet_index(30)]
+    pub type BazariWorkAgreements = pallet_bazari_work_agreements;
+
+    // Bazari Recurring Payments pallet - On-chain recurring payment contracts (Bazari Pay)
+    #[runtime::pallet_index(31)]
+    pub type BazariRecurringPayments = pallet_bazari_recurring_payments;
 }

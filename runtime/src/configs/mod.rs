@@ -719,3 +719,20 @@ impl pallet_bazari_dispute::Config for Runtime {
 	type WeightInfo = ();
 }
 
+// Bazari Work Agreements - Registro on-chain de acordos de trabalho
+impl pallet_bazari_work_agreements::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+}
+
+// --- Bazari Recurring Payments (Bazari Pay PROMPT-04) ---
+parameter_types! {
+	/// Maximum contracts per account
+	pub const RecurringPaymentsMaxContractsPerAccount: u32 = 100;
+}
+
+impl pallet_bazari_recurring_payments::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type MaxContractsPerAccount = RecurringPaymentsMaxContractsPerAccount;
+}
+

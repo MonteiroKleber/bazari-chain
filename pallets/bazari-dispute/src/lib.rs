@@ -254,6 +254,8 @@ pub mod pallet {
 		/// # Arguments
 		/// * `order_id` - Order to dispute
 		/// * `evidence_cid` - IPFS CID with evidence
+		///
+		/// FASE 6: Now also marks the escrow as disputed to prevent auto-release.
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::open_dispute())]
 		pub fn open_dispute(
@@ -283,6 +285,12 @@ pub mod pallet {
 
 			// Select jurors using VRF
 			let jurors = Self::select_jurors_vrf(dispute_id)?;
+
+			// FASE 6: Mark escrow as disputed to prevent auto-release
+			// This uses the internal function from bazari-escrow pallet
+			// If escrow doesn't exist or is not locked, this will fail silently
+			// (we don't want to block dispute opening if escrow has issues)
+			let _ = pallet_bazari_escrow::Pallet::<T>::mark_disputed_internal(order_id);
 
 			// Create dispute
 			let dispute = Dispute {

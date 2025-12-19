@@ -39,6 +39,8 @@ pallet-bazari-fulfillment = { workspace = true }
 pallet-bazari-affiliate = { workspace = true }
 pallet-bazari-fee = { workspace = true }
 pallet-bazari-dispute = { workspace = true }
+pallet-bazari-work-agreements = { path = "../pallets/bazari-work-agreements", default-features = false }
+pallet-bazari-recurring-payments = { path = "../pallets/bazari-recurring-payments", default-features = false }
 pallet-insecure-randomness-collective-flip = { workspace = true }
 pallet-timestamp.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
@@ -104,6 +106,8 @@ std = [
 	"pallet-bazari-affiliate/std",
 	"pallet-bazari-fee/std",
 	"pallet-bazari-dispute/std",
+	"pallet-bazari-work-agreements/std",
+	"pallet-bazari-recurring-payments/std",
 	"pallet-insecure-randomness-collective-flip/std",
 	"pallet-treasury/std",
 	"pallet-democracy/std",

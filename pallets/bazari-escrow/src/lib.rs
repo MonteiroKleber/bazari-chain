@@ -126,6 +126,10 @@ pub mod pallet {
 			buyer_amount: BalanceOf<T>,
 			seller_amount: BalanceOf<T>,
 		},
+		/// Escrow marked as disputed (FASE 6 - NEW) [order_id]
+		EscrowDisputed {
+			order_id: u64,
+		},
 	}
 
 	// ============================================
@@ -354,6 +358,76 @@ pub mod pallet {
 				buyer_amount,
 				seller_amount,
 			});
+
+			Ok(())
+		}
+
+		/// Mark escrow as disputed (FASE 6 - NEW)
+		///
+		/// Called by bazari-dispute pallet when a dispute is opened.
+		/// Prevents auto-release while dispute is active.
+		///
+		/// - `order_id`: Order ID
+		///
+		/// Can only be called by root (for now, later DisputeOrigin).
+		/// Emits `EscrowDisputed` event.
+		#[pallet::call_index(4)]
+		#[pallet::weight(10_000)]
+		pub fn mark_disputed(
+			origin: OriginFor<T>,
+			order_id: u64,
+		) -> DispatchResult {
+			// For now, require root. Later can be changed to DisputeOrigin
+			// that the dispute pallet can use
+			ensure_root(origin)?;
+
+			let mut escrow = Escrows::<T>::get(order_id).ok_or(Error::<T>::EscrowNotFound)?;
+
+			// Only locked escrows can be disputed
+			ensure!(
+				escrow.status == EscrowStatus::Locked,
+				Error::<T>::InvalidStatus
+			);
+
+			// Mark as disputed
+			escrow.status = EscrowStatus::Disputed;
+			escrow.updated_at = frame_system::Pallet::<T>::block_number();
+
+			Escrows::<T>::insert(order_id, escrow);
+
+			Self::deposit_event(Event::EscrowDisputed { order_id });
+
+			Ok(())
+		}
+	}
+
+	// ============================================
+	// INTERNAL FUNCTIONS (for cross-pallet calls)
+	// ============================================
+
+	impl<T: Config> Pallet<T> {
+		/// Mark escrow as disputed (internal function for cross-pallet calls)
+		///
+		/// This can be called directly by the dispute pallet without going through
+		/// the extrinsic layer.
+		///
+		/// Returns error if escrow not found or not in Locked status.
+		pub fn mark_disputed_internal(order_id: u64) -> DispatchResult {
+			let mut escrow = Escrows::<T>::get(order_id).ok_or(Error::<T>::EscrowNotFound)?;
+
+			// Only locked escrows can be disputed
+			ensure!(
+				escrow.status == EscrowStatus::Locked,
+				Error::<T>::InvalidStatus
+			);
+
+			// Mark as disputed
+			escrow.status = EscrowStatus::Disputed;
+			escrow.updated_at = frame_system::Pallet::<T>::block_number();
+
+			Escrows::<T>::insert(order_id, escrow);
+
+			Self::deposit_event(Event::EscrowDisputed { order_id });
 
 			Ok(())
 		}
